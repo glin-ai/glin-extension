@@ -5,6 +5,7 @@
 import { MessageType, RequestMessage, MessageHandler } from '../messaging/types';
 import { MessageBridge } from '../messaging/bridge';
 import { backgroundState } from './state';
+import { u8aToHex, u8aWrapBytes, stringToU8a } from '@polkadot/util';
 
 export class MessageHandlers {
   private handlers: Map<MessageType, MessageHandler> = new Map();
@@ -298,15 +299,43 @@ export class MessageHandlers {
   // Signing handlers
 
   private async handleSignMessage(message: RequestMessage): Promise<any> {
-    const { message: messageToSign, password } = message.payload;
+    const { message: messageToSign } = message.payload;
     const manager = backgroundState.getWalletManager();
 
     if (!manager) {
       throw new Error('Wallet manager not initialized');
     }
 
-    // This would need proper implementation with user approval
-    throw new Error('Sign message not yet implemented');
+    // Get current wallet
+    const wallet = manager.getCurrentWallet();
+    if (!wallet) {
+      throw new Error('No wallet unlocked. Please unlock your wallet first.');
+    }
+
+    // Get the keypair (this is the private implementation detail)
+    // In production, you might want to show a signing approval popup to the user
+    const keypair = (manager as any).currentPair;
+    if (!keypair) {
+      throw new Error('No keypair available. Please unlock wallet.');
+    }
+
+    // Convert message to bytes
+    const messageU8a = stringToU8a(messageToSign);
+
+    // Wrap the message bytes with <Bytes>...</Bytes>
+    // This matches what Polkadot.js does for signRaw with type: 'bytes'
+    const wrappedMessage = u8aWrapBytes(messageU8a);
+
+    // Sign the wrapped message
+    const signatureU8a = keypair.sign(wrappedMessage);
+
+    // Convert signature to hex
+    const signature = u8aToHex(signatureU8a);
+
+    return {
+      signature,
+      publicKey: u8aToHex(keypair.publicKey),
+    };
   }
 
   // Dapp interaction handlers
@@ -342,9 +371,60 @@ export class MessageHandlers {
   // Authentication handlers
 
   private async handleAuthenticateBackend(message: RequestMessage): Promise<any> {
-    // This will integrate with backend authentication
-    // For now, return placeholder
-    throw new Error('Backend authentication not yet implemented');
+    const manager = backgroundState.getWalletManager();
+    const backendClient = backgroundState.getBackendClient();
+
+    if (!manager) {
+      throw new Error('Wallet manager not initialized');
+    }
+
+    if (!backendClient) {
+      throw new Error('Backend API client not initialized');
+    }
+
+    // Get current wallet
+    const wallet = manager.getCurrentWallet();
+    if (!wallet) {
+      throw new Error('No wallet unlocked. Please unlock your wallet first.');
+    }
+
+    try {
+      // Step 1: Request nonce from backend
+      const nonceData = await backendClient.getNonce(wallet.address);
+
+      // Step 2: Sign the nonce message using our signMessage handler
+      const signResult = await this.handleSignMessage({
+        id: `auth_${Date.now()}`,
+        type: MessageType.SIGN_MESSAGE,
+        timestamp: Date.now(),
+        payload: {
+          message: nonceData.message,
+        },
+      } as RequestMessage);
+
+      // Step 3: Login with wallet signature
+      const authResponse = await backendClient.loginWithWallet(
+        wallet.address,
+        signResult.signature,
+        nonceData.nonce
+      );
+
+      // Return authentication result
+      return {
+        accessToken: authResponse.access_token,
+        refreshToken: authResponse.refresh_token,
+        user: {
+          id: authResponse.user.id,
+          wallet_address: authResponse.user.walletAddress,
+          role: 'task_creator', // Default role, backend might provide this
+        },
+      };
+    } catch (error) {
+      console.error('Backend authentication failed:', error);
+      throw new Error(
+        `Authentication failed: ${error instanceof Error ? error.message : 'Unknown error'}`
+      );
+    }
   }
 
   // State handlers

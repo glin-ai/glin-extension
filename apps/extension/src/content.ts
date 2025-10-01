@@ -2,5 +2,5 @@
  * Content script entry point for extension
  */
 
-// Re-export from extension-inject
-export * from '@glin-extension/extension-inject/src';
+// Import to execute the injection code
+import '@glin-extension/extension-inject/src';
