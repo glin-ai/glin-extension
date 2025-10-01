@@ -1,0 +1,20 @@
+{
+  "name": "@glin-extension/extension-inject",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Content script provider for GLIN Extension",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "clean": "rm -rf dist"
+  },
+  "dependencies": {
+    "@glin-extension/extension-base": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.254",
+    "typescript": "^5.3.0"
+  }
+}
