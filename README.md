@@ -54,6 +54,18 @@ pnpm lint
 
 # Format code
 pnpm format
+
+# Run tests
+pnpm test
+
+# Run tests in watch mode
+pnpm test:watch
+
+# Generate test coverage
+pnpm test:coverage
+
+# Package for store submission
+pnpm package
 ```
 
 ## Architecture

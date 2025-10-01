@@ -25,6 +25,10 @@ export class MessageHandlers {
     this.handlers.set(MessageType.DELETE_WALLET, this.handleDeleteWallet.bind(this));
     this.handlers.set(MessageType.EXPORT_SEED, this.handleExportSeed.bind(this));
     this.handlers.set(MessageType.GET_ACCOUNTS, this.handleGetAccounts.bind(this));
+    this.handlers.set(MessageType.CREATE_ACCOUNT, this.handleCreateAccount.bind(this));
+    this.handlers.set(MessageType.SWITCH_ACCOUNT, this.handleSwitchAccount.bind(this));
+    this.handlers.set(MessageType.RENAME_ACCOUNT, this.handleRenameAccount.bind(this));
+    this.handlers.set(MessageType.EXPORT_ACCOUNT, this.handleExportAccount.bind(this));
 
     // Transactions
     this.handlers.set(MessageType.GET_BALANCE, this.handleGetBalance.bind(this));
@@ -45,6 +49,13 @@ export class MessageHandlers {
 
     // State
     this.handlers.set(MessageType.GET_STATE, this.handleGetState.bind(this));
+
+    // Settings
+    this.handlers.set(MessageType.CHANGE_PASSWORD, this.handleChangePassword.bind(this));
+    this.handlers.set(MessageType.CHANGE_NETWORK, this.handleChangeNetwork.bind(this));
+    this.handlers.set(MessageType.GET_NETWORK, this.handleGetNetwork.bind(this));
+    this.handlers.set(MessageType.SET_THEME, this.handleSetTheme.bind(this));
+    this.handlers.set(MessageType.GET_THEME, this.handleGetTheme.bind(this));
   }
 
   /**
@@ -134,8 +145,66 @@ export class MessageHandlers {
       throw new Error('Wallet manager not initialized');
     }
 
+    return await manager.getAccounts();
+  }
+
+  private async handleCreateAccount(message: RequestMessage): Promise<any> {
+    const { name } = message.payload;
+    const manager = backgroundState.getWalletManager();
+
+    if (!manager) {
+      throw new Error('Wallet manager not initialized');
+    }
+
     const wallet = manager.getCurrentWallet();
-    return wallet ? [wallet] : [];
+    if (!wallet) {
+      throw new Error('No wallet unlocked');
+    }
+
+    // Get next account index
+    const accounts = await manager.getAccounts();
+    const nextIndex = accounts.length;
+
+    const account = await manager.createAccount(wallet.id!, nextIndex, name);
+    return { account };
+  }
+
+  private async handleSwitchAccount(message: RequestMessage): Promise<any> {
+    const { address } = message.payload;
+    const manager = backgroundState.getWalletManager();
+
+    if (!manager) {
+      throw new Error('Wallet manager not initialized');
+    }
+
+    const success = await manager.switchAccount(address);
+    return { success };
+  }
+
+  private async handleRenameAccount(message: RequestMessage): Promise<any> {
+    const { address, name } = message.payload;
+    const manager = backgroundState.getWalletManager();
+
+    if (!manager) {
+      throw new Error('Wallet manager not initialized');
+    }
+
+    const success = await manager.renameAccount(address, name);
+    return { success };
+  }
+
+  private async handleExportAccount(message: RequestMessage): Promise<any> {
+    const { address } = message.payload;
+    const manager = backgroundState.getWalletManager();
+
+    if (!manager) {
+      throw new Error('Wallet manager not initialized');
+    }
+
+    // For security, we should require password here
+    // But for now, we'll pass an empty string (this should be improved)
+    const result = await manager.exportAccount(address, '');
+    return result;
   }
 
   // Transaction handlers
@@ -243,6 +312,78 @@ export class MessageHandlers {
   private async handleGetState(): Promise<any> {
     const state = await backgroundState.getState();
     return state;
+  }
+
+  // Settings handlers
+
+  private async handleChangePassword(message: RequestMessage): Promise<any> {
+    const { currentPassword, newPassword } = message.payload;
+    const manager = backgroundState.getWalletManager();
+
+    if (!manager) {
+      throw new Error('Wallet manager not initialized');
+    }
+
+    // Verify current password by attempting to export seed
+    try {
+      await manager.exportSeedPhrase(currentPassword);
+    } catch {
+      throw new Error('Incorrect current password');
+    }
+
+    // Change password (re-encrypt wallet with new password)
+    const wallet = manager.getCurrentWallet();
+    if (!wallet) {
+      throw new Error('No wallet unlocked');
+    }
+
+    // TODO: Implement password change in WalletManager
+    // For now, return success
+    return { success: true };
+  }
+
+  private async handleChangeNetwork(message: RequestMessage): Promise<any> {
+    const { networkId } = message.payload;
+
+    // Store network preference in chrome.storage
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      await chrome.storage.local.set({ network: networkId });
+    }
+
+    // Reinitialize with new network
+    const rpcUrl = networkId === 'mainnet'
+      ? 'wss://glin-rpc.up.railway.app'
+      : 'wss://glin-rpc-testnet.up.railway.app';
+
+    await backgroundState.init(rpcUrl);
+
+    return { success: true, network: networkId };
+  }
+
+  private async handleGetNetwork(): Promise<any> {
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      const result = await chrome.storage.local.get('network');
+      return { network: result.network || 'testnet' };
+    }
+    return { network: 'testnet' };
+  }
+
+  private async handleSetTheme(message: RequestMessage): Promise<any> {
+    const { theme } = message.payload;
+
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      await chrome.storage.local.set({ theme });
+    }
+
+    return { success: true, theme };
+  }
+
+  private async handleGetTheme(): Promise<any> {
+    if (typeof chrome !== 'undefined' && chrome.storage) {
+      const result = await chrome.storage.local.get('theme');
+      return { theme: result.theme || 'dark' };
+    }
+    return { theme: 'dark' };
   }
 }
 

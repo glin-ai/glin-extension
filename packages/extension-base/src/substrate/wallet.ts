@@ -367,9 +367,126 @@ export class WalletManager {
   }
 
   /**
+   * Check if any wallet exists
+   */
+  async hasWallet(): Promise<boolean> {
+    const wallets = await db.wallets.toArray();
+    return wallets.length > 0;
+  }
+
+  /**
    * Get substrate client
    */
   getClient(): SubstrateClient {
     return this.client;
+  }
+
+  /**
+   * Get all accounts for current wallet
+   */
+  async getAccounts(): Promise<Array<{ address: string; name: string; balance: string }>> {
+    if (!this.currentWallet) {
+      return [];
+    }
+
+    const accounts = await db.accounts
+      .where('walletId')
+      .equals(this.currentWallet.id!)
+      .toArray();
+
+    // Get balances for each account
+    const accountsWithBalance = await Promise.all(
+      accounts.map(async (account) => ({
+        address: account.address,
+        name: account.name,
+        balance: await this.getBalance(account.address),
+      }))
+    );
+
+    return accountsWithBalance;
+  }
+
+  /**
+   * Switch to a different account by address
+   */
+  async switchAccount(address: string): Promise<boolean> {
+    if (!this.currentWallet) {
+      throw new Error('No wallet unlocked');
+    }
+
+    const account = await db.accounts
+      .where('[walletId+address]')
+      .equals([this.currentWallet.id!, address])
+      .first();
+
+    if (!account) {
+      throw new Error('Account not found');
+    }
+
+    // Update current wallet's address to the selected account
+    this.currentWallet.address = account.address;
+    this.currentWallet.publicKey = account.publicKey;
+
+    return true;
+  }
+
+  /**
+   * Rename an account
+   */
+  async renameAccount(address: string, newName: string): Promise<boolean> {
+    if (!this.currentWallet) {
+      throw new Error('No wallet unlocked');
+    }
+
+    const account = await db.accounts
+      .where('[walletId+address]')
+      .equals([this.currentWallet.id!, address])
+      .first();
+
+    if (!account) {
+      throw new Error('Account not found');
+    }
+
+    await db.accounts.update(account.id!, { name: newName });
+    return true;
+  }
+
+  /**
+   * Export account private key
+   */
+  async exportAccount(address: string, password: string): Promise<{ privateKey: string }> {
+    if (!this.currentWallet) {
+      throw new Error('No wallet unlocked');
+    }
+
+    const wallet = await db.wallets.get(this.currentWallet.id!);
+    if (!wallet) {
+      throw new Error('Wallet not found');
+    }
+
+    const account = await db.accounts
+      .where('[walletId+address]')
+      .equals([this.currentWallet.id!, address])
+      .first();
+
+    if (!account) {
+      throw new Error('Account not found');
+    }
+
+    // Decrypt the seed
+    const mnemonic = await this.decryptSeed(
+      wallet.encryptedSeed,
+      wallet.nonce,
+      wallet.salt,
+      password
+    );
+
+    // Derive the account's keypair from the mnemonic
+    const keyring = new Keyring({ type: 'sr25519' });
+    const pair = keyring.addFromUri(`${mnemonic}${account.derivationPath}`);
+
+    return {
+      privateKey: u8aToHex(pair.secretKey),
+    };
   }
 }

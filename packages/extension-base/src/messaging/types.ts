@@ -11,6 +11,17 @@ export enum MessageType {
   DELETE_WALLET = 'DELETE_WALLET',
   EXPORT_SEED = 'EXPORT_SEED',
   GET_ACCOUNTS = 'GET_ACCOUNTS',
+  CREATE_ACCOUNT = 'CREATE_ACCOUNT',
+  SWITCH_ACCOUNT = 'SWITCH_ACCOUNT',
+  RENAME_ACCOUNT = 'RENAME_ACCOUNT',
+  EXPORT_ACCOUNT = 'EXPORT_ACCOUNT',
+  CHANGE_PASSWORD = 'CHANGE_PASSWORD',
+
+  // Settings
+  CHANGE_NETWORK = 'CHANGE_NETWORK',
+  GET_NETWORK = 'GET_NETWORK',
+  SET_THEME = 'SET_THEME',
+  GET_THEME = 'GET_THEME',
 
   // Transactions
   GET_BALANCE = 'GET_BALANCE',
@@ -111,14 +122,15 @@ export interface AcceptTaskPayload {
 // State types
 
 export interface WalletState {
+  isInitialized: boolean;
   isLocked: boolean;
   isConnected: boolean;
   currentAccount?: {
     address: string;
     name: string;
     publicKey: string;
+    balance?: string;
   };
-  balance?: string;
   connectedSites: string[];
 }
 

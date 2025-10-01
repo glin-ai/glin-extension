@@ -42,17 +42,19 @@ export class BackgroundState {
    */
   async getState(): Promise<WalletState> {
     const wallet = this.walletManager?.getCurrentWallet();
+    const hasAnyWallet = this.walletManager ? await this.walletManager.hasWallet() : false;
     const balance = wallet ? await this.walletManager?.getBalance() : undefined;
 
     return {
-      isLocked: !wallet,
+      isInitialized: hasAnyWallet,
+      isLocked: hasAnyWallet && !wallet,
       isConnected: this.walletManager !== null,
       currentAccount: wallet ? {
         address: wallet.address,
         name: wallet.name,
         publicKey: wallet.publicKey,
+        balance,
       } : undefined,
-      balance,
       connectedSites: Array.from(this.connectedSites.keys()),
     };
   }
