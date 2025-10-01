@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { MessageBridge, MessageType } from '@glin-extension/extension-base';
 import { Button } from '../../components/Button';
 import { theme } from '../../theme';
+import { formatBalance } from '../../utils/format';
 
 interface Account {
   address: string;
@@ -216,7 +217,7 @@ export const AccountSwitcher: React.FC<AccountSwitcherProps> = ({
                   )}
                 </AccountItemHeader>
                 <AccountAddress>{truncateAddress(account.address)}</AccountAddress>
-                <AccountBalance>{account.balance} tGLIN</AccountBalance>
+                <AccountBalance>{formatBalance(account.balance)}</AccountBalance>
               </AccountItem>
             ))
           )}

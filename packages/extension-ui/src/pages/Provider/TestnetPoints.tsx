@@ -4,6 +4,7 @@ import { Button } from '../../components/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/Card';
 import { Container, Header, HeaderTitle, Content, Spacer } from '../../components/Layout';
 import { theme } from '../../theme';
+import { MessageBridge, MessageType } from '@glin-extension/extension-base';
 
 interface Activity {
   type: string;
@@ -148,31 +149,12 @@ export const TestnetPoints: React.FC<TestnetPointsProps> = ({ onBack, onViewLead
 
   const loadPoints = async () => {
     try {
-      // TODO: Call backend API
-      // Mock data for now
-      setPoints({
-        total: 1250,
-        rank: 42,
-        activities: [
-          {
-            type: 'task_completed',
-            points: 50,
-            timestamp: new Date(Date.now() - 3600000).toISOString(),
-          },
-          {
-            type: 'daily_active',
-            points: 10,
-            timestamp: new Date(Date.now() - 7200000).toISOString(),
-          },
-          {
-            type: 'task_completed',
-            points: 35,
-            timestamp: new Date(Date.now() - 86400000).toISOString(),
-          },
-        ],
-      });
+      const bridge = new MessageBridge();
+      const response = await bridge.sendMessage(MessageType.GET_TESTNET_POINTS, {});
+      setPoints(response);
     } catch (error) {
       console.error('Failed to load points:', error);
+      setPoints(null);
     } finally {
       setLoading(false);
     }

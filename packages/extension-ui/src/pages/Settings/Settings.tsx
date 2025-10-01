@@ -271,9 +271,9 @@ export const Settings: React.FC<SettingsProps> = ({
         </SettingsSection>
 
         <VersionInfo>
-          🤖 Generated with Claude Code
+          GLIN Wallet v0.1.0
           <br />
-          © 2024 GLIN AI. Apache 2.0 License
+          © 2024 GLIN Team. Apache 2.0 License
         </VersionInfo>
       </Content>
     </Container>

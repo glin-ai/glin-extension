@@ -3,12 +3,14 @@ import { theme } from '../theme';
 
 export const Container = styled.div`
   width: 400px;
-  min-height: 600px;
+  height: 600px;
+  max-height: 600px;
   background: ${theme.colors.background};
   color: ${theme.colors.text};
   display: flex;
   flex-direction: column;
   font-family: ${theme.fonts.primary};
+  overflow: hidden;
 `;
 
 export const Header = styled.header`

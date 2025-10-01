@@ -1,7 +1,9 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import styled from 'styled-components';
 import { Button } from '../../components/Button';
 import { Card, CardContent } from '../../components/Card';
+import { MessageBridge, MessageType } from '@glin-extension/extension-base';
+import { formatBalance } from '../../utils/format';
 import {
   Container,
   Header,
@@ -172,6 +174,12 @@ const truncateAddress = (address: string) => {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
 };
 
+interface Activity {
+  type: 'send' | 'receive';
+  amount: string;
+  time: string;
+}
+
 export const Dashboard: React.FC<DashboardProps> = ({
   account,
   onLock,
@@ -183,13 +191,50 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onAccountSwitch,
 }) => {
   const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
+  const [activities, setActivities] = useState<Activity[]>([]);
+  const [loadingHistory, setLoadingHistory] = useState(true);
 
-  // Mock activity data
-  const activities = [
-    { type: 'receive' as const, amount: '100', time: '2 hours ago' },
-    { type: 'send' as const, amount: '50', time: '1 day ago' },
-    { type: 'receive' as const, amount: '250', time: '3 days ago' },
-  ];
+  useEffect(() => {
+    loadTransactionHistory();
+  }, [account.address]);
+
+  const loadTransactionHistory = async () => {
+    try {
+      const bridge = new MessageBridge();
+      const response = await bridge.sendToBackground(MessageType.GET_TRANSACTION_HISTORY, {});
+
+      console.log('Transaction history response:', response);
+
+      // Convert transactions to activities format
+      const recentActivities: Activity[] = (response.transactions || [])
+        .slice(0, 5) // Show only 5 most recent
+        .map((tx: any) => {
+          console.log('Processing transaction:', tx);
+          return {
+            type: tx.from === account.address || tx.from.toLowerCase() === account.address.toLowerCase() ? 'send' : 'receive',
+            amount: tx.amount,
+            time: formatTimestamp(tx.timestamp),
+          };
+        });
+
+      console.log('Activities:', recentActivities);
+      setActivities(recentActivities);
+    } catch (error) {
+      console.error('Failed to load transaction history:', error);
+      setActivities([]);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  const formatTimestamp = (timestamp: number): string => {
+    const seconds = Math.floor((Date.now() - timestamp) / 1000);
+    if (seconds < 60) return 'Just now';
+    if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+    if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+    if (seconds < 604800) return `${Math.floor(seconds / 86400)}d ago`;
+    return new Date(timestamp).toLocaleDateString();
+  };
 
   const handleAccountChange = (address: string) => {
     onAccountSwitch?.();
@@ -236,7 +281,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         <BalanceCard>
           <BalanceLabel>Total Balance</BalanceLabel>
-          <BalanceAmount>{account.balance} tGLIN</BalanceAmount>
+          <BalanceAmount>{formatBalance(account.balance)}</BalanceAmount>
           <BalanceUSD>≈ $0.00 USD</BalanceUSD>
         </BalanceCard>
 
@@ -264,7 +309,13 @@ export const Dashboard: React.FC<DashboardProps> = ({
 
         <ActivitySection>
           <SectionTitle>Recent Activity</SectionTitle>
-          {activities.length > 0 ? (
+          {loadingHistory ? (
+            <Card>
+              <CardContent style={{ textAlign: 'center', color: theme.colors.textSecondary }}>
+                Loading transactions...
+              </CardContent>
+            </Card>
+          ) : activities.length > 0 ? (
             activities.map((activity, index) => (
               <ActivityItem key={index}>
                 <ActivityInfo>

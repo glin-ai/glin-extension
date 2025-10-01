@@ -344,8 +344,14 @@ export const App: React.FC = () => {
         <TaskList
           onBack={() => setCurrentScreen('provider-dashboard')}
           onAcceptTask={async (taskId) => {
-            console.log('Accept task:', taskId);
-            // TODO: Implement task acceptance
+            try {
+              const bridge = new MessageBridge();
+              await bridge.sendMessage(MessageType.ACCEPT_TASK, { taskId });
+              // Navigate back to provider dashboard after accepting
+              setCurrentScreen('provider-dashboard');
+            } catch (error) {
+              console.error('Failed to accept task:', error);
+            }
           }}
         />
       );

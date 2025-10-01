@@ -4,9 +4,13 @@
 
 import { WalletManager } from '../substrate/wallet';
 import { WalletState } from '../messaging/types';
+import { BackendAPIClient } from '../backend/api';
+import { TransactionManager } from '../services/TransactionManager';
 
 export class BackgroundState {
   private walletManager: WalletManager | null = null;
+  private backendClient: BackendAPIClient | null = null;
+  private transactionManager: TransactionManager | null = null;
   private connectedSites: Map<string, {
     appName: string;
     appIcon?: string;
@@ -28,6 +32,14 @@ export class BackgroundState {
 
     this.walletManager = new WalletManager(rpcEndpoint);
     await this.walletManager.init();
+
+    // Initialize backend API client
+    // Use environment variable or fallback to localhost for development
+    const backendUrl = process.env.VITE_BACKEND_URL || 'http://localhost:8080';
+    this.backendClient = new BackendAPIClient(backendUrl);
+
+    // Initialize transaction manager
+    this.transactionManager = new TransactionManager(this.backendClient);
   }
 
   /**
@@ -35,6 +47,20 @@ export class BackgroundState {
    */
   getWalletManager(): WalletManager | null {
     return this.walletManager;
+  }
+
+  /**
+   * Get backend API client
+   */
+  getBackendClient(): BackendAPIClient | null {
+    return this.backendClient;
+  }
+
+  /**
+   * Get transaction manager
+   */
+  getTransactionManager(): TransactionManager | null {
+    return this.transactionManager;
   }
 
   /**
@@ -131,6 +157,9 @@ export class BackgroundState {
   async lock(): Promise<void> {
     this.walletManager?.lockWallet();
     this.clearSubscriptions();
+
+    // Unsubscribe from transaction updates
+    this.transactionManager?.unsubscribe();
   }
 
   /**

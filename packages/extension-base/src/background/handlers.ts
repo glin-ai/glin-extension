@@ -35,6 +35,7 @@ export class MessageHandlers {
     this.handlers.set(MessageType.SEND_TRANSACTION, this.handleSendTransaction.bind(this));
     this.handlers.set(MessageType.ESTIMATE_FEE, this.handleEstimateFee.bind(this));
     this.handlers.set(MessageType.GET_TRANSACTION_HISTORY, this.handleGetTransactionHistory.bind(this));
+    this.handlers.set(MessageType.SUBSCRIBE_TRANSACTIONS, this.handleSubscribeTransactions.bind(this));
 
     // Signing
     this.handlers.set(MessageType.SIGN_MESSAGE, this.handleSignMessage.bind(this));
@@ -46,6 +47,12 @@ export class MessageHandlers {
 
     // Authentication
     this.handlers.set(MessageType.AUTHENTICATE_BACKEND, this.handleAuthenticateBackend.bind(this));
+
+    // Provider features
+    this.handlers.set(MessageType.GET_PROVIDER_STATUS, this.handleGetProviderStatus.bind(this));
+    this.handlers.set(MessageType.GET_PROVIDER_TASKS, this.handleGetProviderTasks.bind(this));
+    this.handlers.set(MessageType.ACCEPT_TASK, this.handleAcceptTask.bind(this));
+    this.handlers.set(MessageType.GET_TESTNET_POINTS, this.handleGetTestnetPoints.bind(this));
 
     // State
     this.handlers.set(MessageType.GET_STATE, this.handleGetState.bind(this));
@@ -222,13 +229,25 @@ export class MessageHandlers {
 
   private async handleSendTransaction(message: RequestMessage): Promise<any> {
     const { to, amount, password } = message.payload;
-    const manager = backgroundState.getWalletManager();
+    const walletManager = backgroundState.getWalletManager();
+    const transactionManager = backgroundState.getTransactionManager();
 
-    if (!manager) {
+    if (!walletManager) {
       throw new Error('Wallet manager not initialized');
     }
 
-    const hash = await manager.sendTransaction(to, amount, password);
+    const wallet = walletManager.getCurrentWallet();
+    if (!wallet) {
+      throw new Error('No wallet unlocked');
+    }
+
+    const hash = await walletManager.sendTransaction(to, amount, password);
+
+    // Track pending transaction in TransactionManager
+    if (transactionManager) {
+      transactionManager.trackPendingTransaction(hash, wallet.address, to, amount);
+    }
+
     return { hash };
   }
 
@@ -244,14 +263,35 @@ export class MessageHandlers {
     return { fee: '0' };
   }
 
-  private async handleGetTransactionHistory(): Promise<any> {
-    const manager = backgroundState.getWalletManager();
+  private async handleGetTransactionHistory(message: RequestMessage): Promise<any> {
+    const transactionManager = backgroundState.getTransactionManager();
+    const walletManager = backgroundState.getWalletManager();
 
-    if (!manager) {
+    if (!transactionManager) {
+      throw new Error('Transaction manager not initialized');
+    }
+
+    if (!walletManager) {
       throw new Error('Wallet manager not initialized');
     }
 
-    const transactions = await manager.getTransactionHistory();
+    const wallet = walletManager.getCurrentWallet();
+    if (!wallet) {
+      throw new Error('No wallet unlocked');
+    }
+
+    const { limit, offset, status } = message.payload || {};
+
+    // Get transactions from TransactionManager (hybrid: cached + backend sync)
+    const transactions = await transactionManager.getTransactions(wallet.address, {
+      limit,
+      offset,
+      status,
+    });
+
+    // Subscribe to real-time updates for this address
+    await transactionManager.subscribeToUpdates(wallet.address);
+
     return { transactions };
   }
 
@@ -384,6 +424,105 @@ export class MessageHandlers {
       return { theme: result.theme || 'dark' };
     }
     return { theme: 'dark' };
+  }
+
+  // Provider feature handlers
+
+  private async handleGetProviderStatus(): Promise<any> {
+    const client = backgroundState.getBackendClient();
+
+    if (!client) {
+      throw new Error('Backend client not initialized');
+    }
+
+    try {
+      const status = await client.getProviderStatus();
+      return status;
+    } catch (error) {
+      console.error('Failed to get provider status:', error);
+      throw error;
+    }
+  }
+
+  private async handleGetProviderTasks(message: RequestMessage): Promise<any> {
+    const client = backgroundState.getBackendClient();
+
+    if (!client) {
+      throw new Error('Backend client not initialized');
+    }
+
+    const { status } = message.payload || {};
+
+    try {
+      const tasks = await client.getTasks(status);
+      return { tasks };
+    } catch (error) {
+      console.error('Failed to get provider tasks:', error);
+      throw error;
+    }
+  }
+
+  private async handleAcceptTask(message: RequestMessage): Promise<any> {
+    const client = backgroundState.getBackendClient();
+
+    if (!client) {
+      throw new Error('Backend client not initialized');
+    }
+
+    const { taskId } = message.payload;
+
+    if (!taskId) {
+      throw new Error('Task ID is required');
+    }
+
+    try {
+      await client.acceptTask(taskId);
+      return { success: true };
+    } catch (error) {
+      console.error('Failed to accept task:', error);
+      throw error;
+    }
+  }
+
+  private async handleGetTestnetPoints(): Promise<any> {
+    const client = backgroundState.getBackendClient();
+
+    if (!client) {
+      throw new Error('Backend client not initialized');
+    }
+
+    try {
+      const points = await client.getTestnetPoints();
+      return points;
+    } catch (error) {
+      console.error('Failed to get testnet points:', error);
+      throw error;
+    }
+  }
+
+  // Transaction subscription handler
+
+  private async handleSubscribeTransactions(message: RequestMessage): Promise<any> {
+    const transactionManager = backgroundState.getTransactionManager();
+    const walletManager = backgroundState.getWalletManager();
+
+    if (!transactionManager) {
+      throw new Error('Transaction manager not initialized');
+    }
+
+    if (!walletManager) {
+      throw new Error('Wallet manager not initialized');
+    }
+
+    const wallet = walletManager.getCurrentWallet();
+    if (!wallet) {
+      throw new Error('No wallet unlocked');
+    }
+
+    // Subscribe to real-time transaction updates
+    await transactionManager.subscribeToUpdates(wallet.address);
+
+    return { success: true };
   }
 }
 

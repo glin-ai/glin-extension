@@ -4,6 +4,7 @@ import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
 import { Container, Header, HeaderTitle, Content, Spacer } from '../../components/Layout';
 import { theme } from '../../theme';
+import { MessageBridge, MessageType } from '@glin-extension/extension-base';
 
 interface Task {
   id: string;
@@ -158,39 +159,14 @@ export const TaskList: React.FC<TaskListProps> = ({ onBack, onAcceptTask }) => {
   const loadTasks = async () => {
     setLoading(true);
     try {
-      // TODO: Call backend API
-      // Mock data for now
-      const mockTasks: Task[] = [
-        {
-          id: '1',
-          title: 'Train Small Language Model',
-          description: 'Help train a 125M parameter language model on general text data.',
-          reward: 50,
-          status: 'available',
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: '2',
-          title: 'Image Classification Task',
-          description: 'Classify images from the CIFAR-10 dataset using a provided model.',
-          reward: 25,
-          status: 'available',
-          createdAt: new Date().toISOString(),
-        },
-        {
-          id: '3',
-          title: 'Sentiment Analysis',
-          description: 'Analyze sentiment of product reviews using transformer models.',
-          reward: 35,
-          status: 'available',
-          deadline: new Date(Date.now() + 86400000).toISOString(),
-          createdAt: new Date().toISOString(),
-        },
-      ];
-
-      setTasks(mockTasks.filter(t => t.status === activeTab));
+      const bridge = new MessageBridge();
+      const response = await bridge.sendMessage(MessageType.GET_PROVIDER_TASKS, {
+        status: activeTab,
+      });
+      setTasks(response.tasks || []);
     } catch (error) {
       console.error('Failed to load tasks:', error);
+      setTasks([]);
     } finally {
       setLoading(false);
     }

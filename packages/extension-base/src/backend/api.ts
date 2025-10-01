@@ -257,4 +257,70 @@ export class BackendAPIClient {
       body: JSON.stringify(metadata),
     });
   }
+
+  /**
+   * Get transactions for an address
+   */
+  async getTransactions(
+    address: string,
+    query?: {
+      limit?: number;
+      offset?: number;
+      status?: string;
+    }
+  ): Promise<{
+    transactions: Array<{
+      hash: string;
+      blockNumber: number;
+      blockHash: string;
+      timestamp: string;
+      extrinsicIndex: number;
+      fromAddress: string;
+      toAddress: string;
+      amount: string;
+      fee: string | null;
+      method: string;
+      status: 'pending' | 'success' | 'failed';
+      errorMessage: string | null;
+    }>;
+    total_count: number;
+    has_more: boolean;
+  }> {
+    const params = new URLSearchParams();
+    if (query?.limit) params.append('limit', query.limit.toString());
+    if (query?.offset) params.append('offset', query.offset.toString());
+    if (query?.status) params.append('status', query.status);
+
+    const queryString = params.toString() ? `?${params.toString()}` : '';
+    return this.request(`/api/v1/transactions/${address}${queryString}`);
+  }
+
+  /**
+   * Get transaction by hash
+   */
+  async getTransactionByHash(hash: string): Promise<{
+    hash: string;
+    blockNumber: number;
+    blockHash: string;
+    timestamp: string;
+    extrinsicIndex: number;
+    fromAddress: string;
+    toAddress: string;
+    amount: string;
+    fee: string | null;
+    method: string;
+    status: 'pending' | 'success' | 'failed';
+    errorMessage: string | null;
+  }> {
+    return this.request(`/api/v1/transactions/by-hash/${hash}`);
+  }
+
+  /**
+   * Get WebSocket URL for real-time updates
+   */
+  async getWebSocketUrl(): Promise<string> {
+    // Convert HTTP(S) URL to WS(S)
+    const wsUrl = this.baseUrl.replace(/^http/, 'ws');
+    return `${wsUrl}/api/v1/ws/global`;
+  }
 }

@@ -6,6 +6,7 @@ import { Input } from '../../components/Input';
 import { Card } from '../../components/Card';
 import { Container, Header, HeaderTitle, Content, Spacer } from '../../components/Layout';
 import { theme } from '../../theme';
+import { formatBalance } from '../../utils/format';
 
 interface Account {
   address: string;
@@ -349,7 +350,7 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({
                           )}
                         </AccountName>
                         <AccountAddress>{account.address}</AccountAddress>
-                        <AccountBalance>{account.balance} tGLIN</AccountBalance>
+                        <AccountBalance>{formatBalance(account.balance)}</AccountBalance>
                       </AccountInfo>
                     </AccountHeader>
 

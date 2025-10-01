@@ -4,6 +4,7 @@ import { Button } from '../../components/Button';
 import { Card, CardHeader, CardTitle, CardContent } from '../../components/Card';
 import { Container, Header, HeaderTitle, Content, Spacer } from '../../components/Layout';
 import { theme } from '../../theme';
+import { MessageBridge, MessageType } from '@glin-extension/extension-base';
 
 interface ProviderStatus {
   status: 'active' | 'idle' | 'offline';
@@ -159,23 +160,12 @@ export const ProviderDashboard: React.FC<ProviderDashboardProps> = ({
 
   const loadProviderStatus = async () => {
     try {
-      // TODO: Call backend API
-      // Mock data for now
-      setStatus({
-        status: 'active',
-        tasks: {
-          active: 3,
-          completed: 42,
-          failed: 2,
-        },
-        earnings: {
-          today: 125.50,
-          total: 1250.75,
-          pending: 50.25,
-        },
-      });
+      const bridge = new MessageBridge();
+      const response = await bridge.sendMessage(MessageType.GET_PROVIDER_STATUS, {});
+      setStatus(response);
     } catch (error) {
       console.error('Failed to load provider status:', error);
+      setStatus(null);
     } finally {
       setLoading(false);
     }
