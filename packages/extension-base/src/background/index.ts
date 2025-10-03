@@ -6,9 +6,7 @@ import { backgroundState } from './state';
 import { messageHandlers } from './handlers';
 import { MessageBridge } from '../messaging/bridge';
 import { RequestMessage } from '../messaging/types';
-
-// Configuration
-const RPC_ENDPOINT = process.env.VITE_RPC_ENDPOINT || 'wss://glin-rpc-production.up.railway.app';
+import { getCurrentRpcUrl, initializeNetworkStorage } from '../storage/network';
 
 /**
  * Initialize background service worker
@@ -17,8 +15,15 @@ async function init() {
   console.log('[GLIN Wallet] Background service worker starting...');
 
   try {
+    // Initialize network storage
+    await initializeNetworkStorage();
+
+    // Get RPC endpoint from storage
+    const rpcEndpoint = await getCurrentRpcUrl();
+    console.log('[GLIN Wallet] Connecting to RPC:', rpcEndpoint);
+
     // Initialize wallet manager
-    await backgroundState.init(RPC_ENDPOINT);
+    await backgroundState.init(rpcEndpoint);
     console.log('[GLIN Wallet] Wallet manager initialized');
 
     // Setup message listeners

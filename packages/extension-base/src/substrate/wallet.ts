@@ -3,36 +3,46 @@ import { MnemonicService } from '../crypto/mnemonic';
 import { KeyringService } from '../crypto/keyring';
 import { EncryptionService } from '../crypto/encryption';
 import { db, Wallet, Account, Transaction } from '../storage/db';
-import { SubstrateClient } from './client';
+import { WalletSDK } from '../sdk/adapter';
 
 export interface WalletService {
   currentWallet: Wallet | null;
   currentAccount: KeyringPair | null;
-  client: SubstrateClient;
+  client: WalletSDK;
 }
 
 export class WalletManager {
   private keyringService: KeyringService;
-  private client: SubstrateClient;
+  private client: WalletSDK;
   private currentWallet: Wallet | null = null;
   private currentPair: KeyringPair | null = null;
 
   constructor(rpcEndpoint: string) {
     this.keyringService = new KeyringService();
-    this.client = new SubstrateClient(rpcEndpoint);
+    this.client = new WalletSDK(rpcEndpoint, {
+      useSDKForBalance: true,
+      useSDKForTransfer: true,
+      useSDKForSubscriptions: true,
+      useSDKForBlocks: true,
+    });
   }
 
   /**
    * Initialize wallet manager
    */
   async init(): Promise<void> {
+    console.log('[WalletManager] init() called');
     await this.keyringService.init();
     await this.client.connect();
 
     // Load active wallet if exists
     const activeWallet = await db.getActiveWallet();
+    console.log('[WalletManager] Active wallet from DB:', activeWallet);
     if (activeWallet) {
       this.currentWallet = activeWallet;
+      console.log('[WalletManager] Loaded wallet into memory:', this.currentWallet);
+    } else {
+      console.log('[WalletManager] No active wallet found in DB');
     }
   }
 
@@ -377,7 +387,7 @@ export class WalletManager {
   /**
    * Get substrate client
    */
-  getClient(): SubstrateClient {
+  getClient(): WalletSDK {
     return this.client;
   }
 
@@ -385,25 +395,31 @@ export class WalletManager {
    * Get all accounts for current wallet
    */
   async getAccounts(): Promise<Array<{ address: string; name: string; balance: string }>> {
+    console.log('[WalletManager] getAccounts() called, currentWallet:', this.currentWallet);
+
     if (!this.currentWallet) {
+      console.log('[WalletManager] No current wallet, returning empty');
       return [];
     }
 
+    console.log('[WalletManager] Querying accounts for walletId:', this.currentWallet.id);
     const accounts = await db.accounts
       .where('walletId')
       .equals(this.currentWallet.id!)
       .toArray();
 
-    // Get balances for each account
-    const accountsWithBalance = await Promise.all(
-      accounts.map(async (account) => ({
-        address: account.address,
-        name: account.name,
-        balance: await this.getBalance(account.address),
-      }))
-    );
+    console.log('[WalletManager] Found accounts in DB:', accounts);
 
-    return accountsWithBalance;
+    // Return accounts without balance for now (balance fetching can hang if RPC not available)
+    // Balance will be fetched separately when needed
+    const accountsWithoutBalance = accounts.map((account) => ({
+      address: account.address,
+      name: account.name,
+      balance: '0', // Default to 0, will be updated when balance is fetched
+    }));
+
+    console.log('[WalletManager] Returning accounts:', accountsWithoutBalance);
+    return accountsWithoutBalance;
   }
 
   /**

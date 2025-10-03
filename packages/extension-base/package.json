@@ -12,6 +12,7 @@
     "clean": "rm -rf dist"
   },
   "dependencies": {
+    "@glin-ai/sdk": "file:../../../glin-sdk/packages/js",
     "@polkadot/api": "^10.11.2",
     "@polkadot/keyring": "^12.6.2",
     "@polkadot/util": "^12.6.2",

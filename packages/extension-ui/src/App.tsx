@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MessageBridge, MessageType } from '@glin-extension/extension-base';
+import { NetworkId } from '@glin-extension/extension-base/src/types/networks';
 
 // Pages
 import { Welcome, CreateWallet, ShowMnemonic, ImportWallet } from './pages/Onboarding';
@@ -55,7 +56,7 @@ export const App: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [mnemonic, setMnemonic] = useState('');
   const [connectedSites, setConnectedSites] = useState<ConnectedSite[]>([]);
-  const [currentNetwork, setCurrentNetwork] = useState<string>('testnet');
+  const [currentNetwork, setCurrentNetwork] = useState<NetworkId>('localhost');
   const [currentTheme, setCurrentTheme] = useState<'dark' | 'light'>('dark');
 
   const messageBridge = new MessageBridge();
@@ -69,7 +70,7 @@ export const App: React.FC = () => {
   const loadSettings = async () => {
     try {
       const networkResult = await messageBridge.sendToBackground(MessageType.GET_NETWORK);
-      setCurrentNetwork(networkResult.network || 'testnet');
+      setCurrentNetwork((networkResult.network as NetworkId) || 'localhost');
 
       const themeResult = await messageBridge.sendToBackground(MessageType.GET_THEME);
       setCurrentTheme(themeResult.theme || 'dark');
@@ -281,6 +282,7 @@ export const App: React.FC = () => {
             name: walletState.currentAccount?.name || 'Account',
             balance: walletState.currentAccount?.balance || '0',
           }}
+          currentNetwork={currentNetwork}
           onLock={handleLock}
           onSettings={() => setCurrentScreen('settings')}
           onSend={() => setCurrentScreen('send')}
@@ -288,6 +290,7 @@ export const App: React.FC = () => {
           onProvider={() => setCurrentScreen('provider-dashboard')}
           onManageAccounts={() => setCurrentScreen('account-management')}
           onAccountSwitch={() => checkWalletState()}
+          onNetworkClick={() => setCurrentScreen('network-switcher')}
         />
       );
 
@@ -385,9 +388,12 @@ export const App: React.FC = () => {
         <NetworkSwitcher
           onBack={() => setCurrentScreen('settings')}
           currentNetwork={currentNetwork}
-          onNetworkChange={async (networkId) => {
+          onNetworkChange={async (networkId, customRpcUrl?) => {
             try {
-              await messageBridge.sendToBackground(MessageType.CHANGE_NETWORK, { networkId });
+              await messageBridge.sendToBackground(MessageType.CHANGE_NETWORK, {
+                networkId,
+                customRpcUrl,
+              });
               setCurrentNetwork(networkId);
               await checkWalletState(); // Refresh wallet state with new network
               setCurrentScreen('settings');

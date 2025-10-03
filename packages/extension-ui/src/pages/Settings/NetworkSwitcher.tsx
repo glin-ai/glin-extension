@@ -4,37 +4,15 @@ import { Button } from '../../components/Button';
 import { Card } from '../../components/Card';
 import { Container, Header, HeaderTitle, Content, Spacer } from '../../components/Layout';
 import { theme } from '../../theme';
-
-interface Network {
-  id: string;
-  name: string;
-  rpcUrl: string;
-  description: string;
-  isTestnet: boolean;
-}
+import { Network, NetworkId, getAllNetworks, validateRpcUrl } from '@glin-extension/extension-base/src/types/networks';
 
 interface NetworkSwitcherProps {
   onBack: () => void;
-  currentNetwork: string;
-  onNetworkChange: (networkId: string) => void;
+  currentNetwork: NetworkId;
+  onNetworkChange: (networkId: NetworkId, customRpcUrl?: string) => void;
 }
 
-const networks: Network[] = [
-  {
-    id: 'testnet',
-    name: 'GLIN Testnet',
-    rpcUrl: 'wss://glin-rpc-testnet.up.railway.app',
-    description: 'Test network for development',
-    isTestnet: true,
-  },
-  {
-    id: 'mainnet',
-    name: 'GLIN Mainnet',
-    rpcUrl: 'wss://glin-rpc.up.railway.app',
-    description: 'Production network',
-    isTestnet: false,
-  },
-];
+const networks = getAllNetworks();
 
 const NetworkCard = styled(Card)<{ $active: boolean }>`
   margin-bottom: ${theme.spacing.md};
@@ -71,12 +49,16 @@ const NetworkName = styled.div`
   gap: ${theme.spacing.sm};
 `;
 
-const NetworkBadge = styled.span<{ $isTestnet: boolean }>`
+const NetworkBadge = styled.span<{ $networkId: NetworkId }>`
   font-size: ${theme.fontSizes.xs};
   padding: 2px 8px;
   border-radius: ${theme.borderRadius.full};
-  background: ${({ $isTestnet }) =>
-    $isTestnet ? theme.colors.warning : theme.colors.success};
+  background: ${({ $networkId }) => {
+    if ($networkId === 'mainnet') return theme.colors.success;
+    if ($networkId === 'testnet') return theme.colors.warning;
+    if ($networkId === 'localhost') return '#6366f1'; // Indigo for localhost
+    return theme.colors.textSecondary; // Gray for custom
+  }};
   color: white;
   font-weight: 600;
 `;
@@ -115,14 +97,66 @@ const WarningText = styled.p`
   line-height: 1.5;
 `;
 
+const CustomRPCSection = styled.div`
+  margin-top: ${theme.spacing.lg};
+  padding-top: ${theme.spacing.lg};
+  border-top: 1px solid ${theme.colors.border};
+`;
+
+const SectionTitle = styled.h3`
+  font-size: ${theme.fontSizes.md};
+  font-weight: 600;
+  color: ${theme.colors.text};
+  margin-bottom: ${theme.spacing.md};
+`;
+
+const InputGroup = styled.div`
+  margin-bottom: ${theme.spacing.md};
+`;
+
+const Label = styled.label`
+  display: block;
+  font-size: ${theme.fontSizes.sm};
+  color: ${theme.colors.textSecondary};
+  margin-bottom: ${theme.spacing.xs};
+`;
+
+const Input = styled.input`
+  width: 100%;
+  padding: ${theme.spacing.sm};
+  border: 1px solid ${theme.colors.border};
+  border-radius: ${theme.borderRadius.md};
+  background: ${theme.colors.surface};
+  color: ${theme.colors.text};
+  font-size: ${theme.fontSizes.sm};
+  font-family: ${theme.fonts.mono};
+
+  &:focus {
+    outline: none;
+    border-color: ${theme.colors.primary};
+  }
+
+  &::placeholder {
+    color: ${theme.colors.textTertiary};
+  }
+`;
+
+const ErrorText = styled.div`
+  font-size: ${theme.fontSizes.xs};
+  color: ${theme.colors.error};
+  margin-top: ${theme.spacing.xs};
+`;
+
 export const NetworkSwitcher: React.FC<NetworkSwitcherProps> = ({
   onBack,
   currentNetwork,
   onNetworkChange,
 }) => {
   const [switching, setSwitching] = useState(false);
+  const [customRpcUrl, setCustomRpcUrl] = useState('');
+  const [rpcError, setRpcError] = useState('');
 
-  const handleNetworkSelect = async (networkId: string) => {
+  const handleNetworkSelect = async (networkId: NetworkId) => {
     if (networkId === currentNetwork) return;
 
     setSwitching(true);
@@ -131,6 +165,26 @@ export const NetworkSwitcher: React.FC<NetworkSwitcherProps> = ({
     } catch (error) {
       console.error('Failed to switch network:', error);
       alert('Failed to switch network');
+    } finally {
+      setSwitching(false);
+    }
+  };
+
+  const handleCustomRpcConnect = async () => {
+    // Validate RPC URL
+    const validation = validateRpcUrl(customRpcUrl);
+    if (!validation.valid) {
+      setRpcError(validation.error || 'Invalid RPC URL');
+      return;
+    }
+
+    setRpcError('');
+    setSwitching(true);
+    try {
+      await onNetworkChange('custom', customRpcUrl);
+    } catch (error) {
+      console.error('Failed to connect to custom RPC:', error);
+      alert('Failed to connect to custom RPC');
     } finally {
       setSwitching(false);
     }
@@ -149,11 +203,22 @@ export const NetworkSwitcher: React.FC<NetworkSwitcherProps> = ({
       </Header>
 
       <Content>
-        {selectedNetwork?.isTestnet && (
+        {currentNetwork === 'testnet' && (
           <>
             <WarningBox>
               <WarningText>
                 ⚠️ You are on a testnet. Tokens have no real value. Switch to mainnet when ready for production.
+              </WarningText>
+            </WarningBox>
+            <Spacer size="md" />
+          </>
+        )}
+
+        {currentNetwork === 'localhost' && (
+          <>
+            <WarningBox>
+              <WarningText>
+                💻 You are connected to a local development node. Make sure your local blockchain is running on ws://localhost:9944.
               </WarningText>
             </WarningBox>
             <Spacer size="md" />
@@ -170,19 +235,49 @@ export const NetworkSwitcher: React.FC<NetworkSwitcherProps> = ({
               <NetworkHeader>
                 <NetworkName>
                   {network.name}
-                  <NetworkBadge $isTestnet={network.isTestnet}>
-                    {network.isTestnet ? 'TESTNET' : 'MAINNET'}
+                  <NetworkBadge $networkId={network.id}>
+                    {network.id.toUpperCase()}
                   </NetworkBadge>
                 </NetworkName>
                 {network.id === currentNetwork && (
                   <ActiveBadge>✓ Active</ActiveBadge>
                 )}
               </NetworkHeader>
-              <NetworkDescription>{network.description}</NetworkDescription>
               <NetworkRPC>{network.rpcUrl}</NetworkRPC>
             </NetworkCardContent>
           </NetworkCard>
         ))}
+
+        <CustomRPCSection>
+          <SectionTitle>Custom RPC</SectionTitle>
+          <InputGroup>
+            <Label htmlFor="customRpcUrl">WebSocket URL</Label>
+            <Input
+              id="customRpcUrl"
+              type="text"
+              placeholder="ws://localhost:9944 or wss://..."
+              value={customRpcUrl}
+              onChange={(e) => {
+                setCustomRpcUrl(e.target.value);
+                setRpcError('');
+              }}
+              onKeyPress={(e) => {
+                if (e.key === 'Enter') {
+                  handleCustomRpcConnect();
+                }
+              }}
+            />
+            {rpcError && <ErrorText>{rpcError}</ErrorText>}
+          </InputGroup>
+          <Button
+            variant="primary"
+            fullWidth
+            onClick={handleCustomRpcConnect}
+            disabled={switching || !customRpcUrl}
+          >
+            Connect to Custom RPC
+          </Button>
+        </CustomRPCSection>
 
         {switching && (
           <>

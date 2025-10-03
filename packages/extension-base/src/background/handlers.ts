@@ -153,7 +153,24 @@ export class MessageHandlers {
       throw new Error('Wallet manager not initialized');
     }
 
-    return await manager.getAccounts();
+    // Check if there's a current wallet
+    const wallet = manager.getCurrentWallet();
+    console.log('[Background] getCurrentWallet():', wallet);
+    if (!wallet) {
+      // No wallet created yet, return empty accounts
+      console.log('[Background] No wallet found, returning empty accounts');
+      return [];
+    }
+
+    try {
+      const accounts = await manager.getAccounts();
+      console.log('[Background] getAccounts() returned:', accounts);
+      return accounts;
+    } catch (error) {
+      console.error('[Background] Error getting accounts:', error);
+      // If there's an error getting accounts, return empty array
+      return [];
+    }
   }
 
   private async handleCreateAccount(message: RequestMessage): Promise<any> {
@@ -343,6 +360,17 @@ export class MessageHandlers {
   private async handleRequestConnection(message: RequestMessage): Promise<any> {
     const { origin, appName, appIcon } = message.payload;
 
+    const manager = backgroundState.getWalletManager();
+    if (!manager) {
+      throw new Error('Wallet manager not initialized');
+    }
+
+    // Check if wallet exists
+    const wallet = manager.getCurrentWallet();
+    if (!wallet) {
+      throw new Error('No wallet found. Please create or import a wallet first.');
+    }
+
     // Check if already connected
     if (backgroundState.isConnected(origin)) {
       const accounts = await this.handleGetAccounts(message);
@@ -463,29 +491,37 @@ export class MessageHandlers {
   }
 
   private async handleChangeNetwork(message: RequestMessage): Promise<any> {
-    const { networkId } = message.payload;
+    const { networkId, customRpcUrl } = message.payload;
 
-    // Store network preference in chrome.storage
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      await chrome.storage.local.set({ network: networkId });
+    // Import network utilities
+    const { setCurrentNetwork } = await import('../storage/network');
+    const { getNetworkById } = await import('../types/networks');
+
+    // Validate network
+    const network = getNetworkById(networkId, customRpcUrl);
+    if (!network) {
+      throw new Error('Invalid network configuration');
     }
 
-    // Reinitialize with new network
-    const rpcUrl = networkId === 'mainnet'
-      ? 'wss://glin-rpc.up.railway.app'
-      : 'wss://glin-rpc-testnet.up.railway.app';
+    console.log('[Background] Changing network to:', network.name, network.rpcUrl);
 
-    await backgroundState.init(rpcUrl);
+    // Save network preference
+    await setCurrentNetwork(networkId, customRpcUrl);
 
-    return { success: true, network: networkId };
+    // Reinitialize wallet manager with new RPC URL
+    await backgroundState.init(network.rpcUrl);
+
+    return { success: true, network: networkId, rpcUrl: network.rpcUrl };
   }
 
   private async handleGetNetwork(): Promise<any> {
-    if (typeof chrome !== 'undefined' && chrome.storage) {
-      const result = await chrome.storage.local.get('network');
-      return { network: result.network || 'testnet' };
-    }
-    return { network: 'testnet' };
+    const { getCurrentNetwork } = await import('../storage/network');
+    const { networkId, customRpcUrl } = await getCurrentNetwork();
+
+    return {
+      network: networkId,
+      customRpcUrl: customRpcUrl
+    };
   }
 
   private async handleSetTheme(message: RequestMessage): Promise<any> {

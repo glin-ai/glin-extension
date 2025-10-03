@@ -51,7 +51,7 @@
 
   "web_accessible_resources": [
     {
-      "resources": ["inject.js"],
+      "resources": ["public/inject.js"],
       "matches": ["<all_urls>"]
     }
   ],

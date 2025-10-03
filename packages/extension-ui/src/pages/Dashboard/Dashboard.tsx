@@ -3,6 +3,7 @@ import styled from 'styled-components';
 import { Button } from '../../components/Button';
 import { Card, CardContent } from '../../components/Card';
 import { MessageBridge, MessageType } from '@glin-extension/extension-base';
+import { NetworkId } from '@glin-extension/extension-base/src/types/networks';
 import { formatBalance } from '../../utils/format';
 import {
   Container,
@@ -15,6 +16,7 @@ import {
 } from '../../components/Layout';
 import { theme } from '../../theme';
 import { AccountSwitcher } from './AccountSwitcher';
+import { NetworkIndicator } from '../../components/NetworkIndicator';
 
 interface Account {
   address: string;
@@ -24,6 +26,7 @@ interface Account {
 
 interface DashboardProps {
   account: Account;
+  currentNetwork: NetworkId;
   onLock: () => void;
   onSettings: () => void;
   onSend: () => void;
@@ -31,6 +34,7 @@ interface DashboardProps {
   onProvider?: () => void;
   onManageAccounts?: () => void;
   onAccountSwitch?: () => void;
+  onNetworkClick?: () => void;
 }
 
 const AccountSelector = styled.button`
@@ -182,6 +186,7 @@ interface Activity {
 
 export const Dashboard: React.FC<DashboardProps> = ({
   account,
+  currentNetwork,
   onLock,
   onSettings,
   onSend,
@@ -189,6 +194,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onProvider,
   onManageAccounts,
   onAccountSwitch,
+  onNetworkClick,
 }) => {
   const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -259,6 +265,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
       <Header>
         <HeaderTitle>GLIN Wallet</HeaderTitle>
         <HeaderActions>
+          <NetworkIndicator networkId={currentNetwork} onClick={onNetworkClick} />
           <IconButton onClick={onLock} title="Lock">
             🔒
           </IconButton>
