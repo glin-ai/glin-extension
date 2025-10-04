@@ -11,6 +11,7 @@ import {
   Spacer,
 } from '../../components/Layout';
 import { theme } from '../../theme';
+import { formatBalance } from '../../utils/format';
 
 interface SendProps {
   balance: string;
@@ -100,8 +101,12 @@ export const Send: React.FC<SendProps> = ({ balance, onBack, onSend }) => {
     const amountNum = parseFloat(amount);
     if (!amount || isNaN(amountNum) || amountNum <= 0) {
       newErrors.amount = 'Invalid amount';
-    } else if (amountNum > parseFloat(balance)) {
-      newErrors.amount = 'Insufficient balance';
+    } else {
+      // Convert balance from smallest unit to GLIN for comparison
+      const balanceInGlin = parseFloat(balance) / 1e18;
+      if (amountNum > balanceInGlin) {
+        newErrors.amount = 'Insufficient balance';
+      }
     }
 
     setErrors(newErrors);
@@ -109,9 +114,11 @@ export const Send: React.FC<SendProps> = ({ balance, onBack, onSend }) => {
   };
 
   const handleMaxClick = () => {
+    // Convert balance from smallest unit to GLIN
+    const balanceInGlin = parseFloat(balance) / 1e18;
     // Leave some for fees
-    const maxAmount = Math.max(0, parseFloat(balance) - 0.01);
-    setAmount(maxAmount.toString());
+    const maxAmount = Math.max(0, balanceInGlin - 0.01);
+    setAmount(maxAmount.toFixed(6));
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -147,7 +154,7 @@ export const Send: React.FC<SendProps> = ({ balance, onBack, onSend }) => {
       <Content>
         <BalanceInfo>
           <BalanceLabel>Available Balance</BalanceLabel>
-          <BalanceAmount>{balance} tGLIN</BalanceAmount>
+          <BalanceAmount>{formatBalance(balance)}</BalanceAmount>
         </BalanceInfo>
 
         <Spacer size="lg" />

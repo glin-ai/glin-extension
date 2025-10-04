@@ -2,6 +2,9 @@
  * Background service worker entry point
  */
 
+// Import globals polyfill FIRST before any other imports
+import './globals';
+
 import { backgroundState } from './state';
 import { messageHandlers } from './handlers';
 import { MessageBridge } from '../messaging/bridge';

@@ -33,12 +33,27 @@ export class KeyringService {
   }
 
   /**
-   * Create account from mnemonic
+   * Create account from mnemonic with optional derivation path
    */
-  createFromMnemonic(mnemonic: string, name: string = 'Account'): KeyringPair {
+  createFromMnemonic(mnemonic: string, derivationPathOrName: string = 'Account'): KeyringPair {
     const keyring = this.getKeyring();
-    const pair = keyring.addFromUri(mnemonic, { name }, 'sr25519');
-    return pair;
+
+    // Check if this looks like a derivation path (starts with //)
+    const isDerivationPath = derivationPathOrName.startsWith('//');
+
+    if (isDerivationPath) {
+      // Use as derivation path
+      const pair = keyring.addFromUri(
+        `${mnemonic}${derivationPathOrName}`,
+        { name: 'Account' },
+        'sr25519'
+      );
+      return pair;
+    } else {
+      // Use as name
+      const pair = keyring.addFromUri(mnemonic, { name: derivationPathOrName }, 'sr25519');
+      return pair;
+    }
   }
 
   /**

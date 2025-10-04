@@ -43,6 +43,27 @@ export class BackgroundState {
   }
 
   /**
+   * Switch network - reinitialize wallet manager with new RPC endpoint
+   */
+  async switchNetwork(rpcEndpoint: string): Promise<void> {
+    console.log('[BackgroundState] Switching network to:', rpcEndpoint);
+
+    // Lock current wallet (clears currentWallet and currentPair)
+    if (this.walletManager) {
+      this.walletManager.lockWallet();
+    }
+
+    // Clear subscriptions
+    this.clearSubscriptions();
+
+    // Reinitialize wallet manager with new RPC endpoint
+    this.walletManager = new WalletManager(rpcEndpoint);
+    await this.walletManager.init();
+
+    console.log('[BackgroundState] Network switched successfully');
+  }
+
+  /**
    * Get wallet manager
    */
   getWalletManager(): WalletManager | null {
@@ -68,12 +89,17 @@ export class BackgroundState {
    */
   async getState(): Promise<WalletState> {
     const wallet = this.walletManager?.getCurrentWallet();
-    const hasAnyWallet = this.walletManager ? await this.walletManager.hasWallet() : false;
+
+    // Use getWalletStatus to properly detect wallet existence without auto-loading
+    const walletStatus = this.walletManager
+      ? await this.walletManager.getWalletStatus()
+      : { hasWallet: false, isLocked: false };
+
     const balance = wallet ? await this.walletManager?.getBalance() : undefined;
 
     return {
-      isInitialized: hasAnyWallet,
-      isLocked: hasAnyWallet && !wallet,
+      isInitialized: walletStatus.hasWallet,
+      isLocked: walletStatus.isLocked,
       isConnected: this.walletManager !== null,
       currentAccount: wallet ? {
         address: wallet.address,

@@ -6,6 +6,9 @@ import { MessageType, RequestMessage, MessageHandler } from '../messaging/types'
 import { MessageBridge } from '../messaging/bridge';
 import { backgroundState } from './state';
 import { u8aToHex, u8aWrapBytes, stringToU8a } from '@polkadot/util';
+import { db } from '../storage/db';
+import { setCurrentNetwork, getCurrentNetwork } from '../storage/network';
+import { getNetworkById } from '../types/networks';
 
 export class MessageHandlers {
   private handlers: Map<MessageType, MessageHandler> = new Map();
@@ -25,6 +28,8 @@ export class MessageHandlers {
     this.handlers.set(MessageType.LOCK_WALLET, this.handleLockWallet.bind(this));
     this.handlers.set(MessageType.DELETE_WALLET, this.handleDeleteWallet.bind(this));
     this.handlers.set(MessageType.EXPORT_SEED, this.handleExportSeed.bind(this));
+    this.handlers.set(MessageType.GET_WALLETS, this.handleGetWallets.bind(this));
+    this.handlers.set(MessageType.SWITCH_WALLET, this.handleSwitchWallet.bind(this));
     this.handlers.set(MessageType.GET_ACCOUNTS, this.handleGetAccounts.bind(this));
     this.handlers.set(MessageType.CREATE_ACCOUNT, this.handleCreateAccount.bind(this));
     this.handlers.set(MessageType.SWITCH_ACCOUNT, this.handleSwitchAccount.bind(this));
@@ -106,14 +111,25 @@ export class MessageHandlers {
   }
 
   private async handleUnlockWallet(message: RequestMessage): Promise<any> {
-    const { walletId, password } = message.payload;
+    let { walletId, password } = message.payload;
     const manager = backgroundState.getWalletManager();
 
     if (!manager) {
       throw new Error('Wallet manager not initialized');
     }
 
+    // Auto-detect walletId if not provided (use active wallet)
+    if (!walletId) {
+      const activeWallet = await db.getActiveWallet();
+      if (!activeWallet || !activeWallet.id) {
+        throw new Error('No wallet found to unlock');
+      }
+      walletId = activeWallet.id;
+    }
+
+    console.log('[handleUnlockWallet] Attempting to unlock walletId:', walletId, 'with password length:', password?.length);
     const success = await manager.unlockWallet(walletId, password);
+    console.log('[handleUnlockWallet] Unlock result:', success);
     return { success };
   }
 
@@ -144,6 +160,51 @@ export class MessageHandlers {
 
     const seedPhrase = manager.exportSeedPhrase(password);
     return { seedPhrase };
+  }
+
+  private async handleGetWallets(): Promise<any> {
+    const manager = backgroundState.getWalletManager();
+
+    if (!manager) {
+      throw new Error('Wallet manager not initialized');
+    }
+
+    const wallets = await manager.getWallets();
+
+    // Get account count for each wallet
+    const walletsWithCounts = await Promise.all(
+      wallets.map(async (wallet) => {
+        const accounts = await db.accounts.where('walletId').equals(wallet.id!).toArray();
+        return {
+          id: wallet.id,
+          name: wallet.name,
+          address: wallet.address,
+          isActive: wallet.isActive,
+          createdAt: wallet.createdAt,
+          lastUsed: wallet.lastUsed,
+          accountCount: accounts.length,
+        };
+      })
+    );
+
+    return walletsWithCounts;
+  }
+
+  private async handleSwitchWallet(message: RequestMessage): Promise<any> {
+    const { walletId, password } = message.payload;
+    const manager = backgroundState.getWalletManager();
+
+    if (!manager) {
+      throw new Error('Wallet manager not initialized');
+    }
+
+    const success = await manager.switchWallet(walletId, password);
+
+    if (!success) {
+      throw new Error('Incorrect password');
+    }
+
+    return { success };
   }
 
   private async handleGetAccounts(): Promise<any> {
@@ -190,6 +251,7 @@ export class MessageHandlers {
     const accounts = await manager.getAccounts();
     const nextIndex = accounts.length;
 
+    // No password needed - uses cached seed from session
     const account = await manager.createAccount(wallet.id!, nextIndex, name);
     return { account };
   }
@@ -202,6 +264,7 @@ export class MessageHandlers {
       throw new Error('Wallet manager not initialized');
     }
 
+    // No password needed - uses cached seed from session
     const success = await manager.switchAccount(address);
     return { success };
   }
@@ -246,7 +309,8 @@ export class MessageHandlers {
   }
 
   private async handleSendTransaction(message: RequestMessage): Promise<any> {
-    const { to, amount, password } = message.payload;
+    const { recipient, to, amount } = message.payload; // Support both 'recipient' and 'to'
+    const recipientAddress = recipient || to; // Use whichever is provided
     const walletManager = backgroundState.getWalletManager();
     const transactionManager = backgroundState.getTransactionManager();
 
@@ -259,11 +323,14 @@ export class MessageHandlers {
       throw new Error('No wallet unlocked');
     }
 
-    const hash = await walletManager.sendTransaction(to, amount, password);
+    // Convert string amount to bigint (amount is already in planck from UI)
+    const amountBigInt = BigInt(amount);
+
+    const hash = await walletManager.sendTransaction(recipientAddress, amountBigInt);
 
     // Track pending transaction in TransactionManager
     if (transactionManager) {
-      transactionManager.trackPendingTransaction(hash, wallet.address, to, amount);
+      transactionManager.trackPendingTransaction(hash, wallet.address, recipientAddress, amount);
     }
 
     return { hash };
@@ -493,10 +560,6 @@ export class MessageHandlers {
   private async handleChangeNetwork(message: RequestMessage): Promise<any> {
     const { networkId, customRpcUrl } = message.payload;
 
-    // Import network utilities
-    const { setCurrentNetwork } = await import('../storage/network');
-    const { getNetworkById } = await import('../types/networks');
-
     // Validate network
     const network = getNetworkById(networkId, customRpcUrl);
     if (!network) {
@@ -508,14 +571,13 @@ export class MessageHandlers {
     // Save network preference
     await setCurrentNetwork(networkId, customRpcUrl);
 
-    // Reinitialize wallet manager with new RPC URL
-    await backgroundState.init(network.rpcUrl);
+    // Switch network (reinitialize wallet manager with new RPC URL)
+    await backgroundState.switchNetwork(network.rpcUrl);
 
     return { success: true, network: networkId, rpcUrl: network.rpcUrl };
   }
 
   private async handleGetNetwork(): Promise<any> {
-    const { getCurrentNetwork } = await import('../storage/network');
     const { networkId, customRpcUrl } = await getCurrentNetwork();
 
     return {

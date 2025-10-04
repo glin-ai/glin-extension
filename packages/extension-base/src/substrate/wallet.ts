@@ -17,6 +17,10 @@ export class WalletManager {
   private currentWallet: Wallet | null = null;
   private currentPair: KeyringPair | null = null;
 
+  // Session state - decrypted seed cached in memory while wallet is unlocked
+  // This is cleared on lock() for security
+  private decryptedSeed: string | null = null;
+
   constructor(rpcEndpoint: string) {
     this.keyringService = new KeyringService();
     this.client = new WalletSDK(rpcEndpoint, {
@@ -29,21 +33,16 @@ export class WalletManager {
 
   /**
    * Initialize wallet manager
+   * NOTE: Does NOT auto-load wallet for security - wallet remains locked until unlocked with password
    */
   async init(): Promise<void> {
     console.log('[WalletManager] init() called');
     await this.keyringService.init();
     await this.client.connect();
 
-    // Load active wallet if exists
-    const activeWallet = await db.getActiveWallet();
-    console.log('[WalletManager] Active wallet from DB:', activeWallet);
-    if (activeWallet) {
-      this.currentWallet = activeWallet;
-      console.log('[WalletManager] Loaded wallet into memory:', this.currentWallet);
-    } else {
-      console.log('[WalletManager] No active wallet found in DB');
-    }
+    // DO NOT auto-load wallet - this would bypass the lock screen!
+    // Wallet must be explicitly unlocked with password via unlockWallet()
+    console.log('[WalletManager] Initialized - wallet remains locked until unlocked with password');
   }
 
   /**
@@ -52,16 +51,25 @@ export class WalletManager {
   async createWallet(
     name: string,
     password: string,
-    mnemonic?: string
+    mnemonic?: string,
+    isImport: boolean = false
   ): Promise<{ wallet: Wallet; mnemonic: string }> {
+    console.log('[WalletManager] createWallet called with name:', name, 'isImport:', isImport);
+
     // Generate or validate mnemonic
     const seedPhrase = mnemonic || MnemonicService.generate();
     if (!MnemonicService.validate(seedPhrase)) {
       throw new Error('Invalid mnemonic phrase');
     }
 
-    // Create keypair
-    const pair = this.keyringService.createFromMnemonic(seedPhrase, name);
+    console.log('[WalletManager] Mnemonic validated, length:', seedPhrase.split(' ').length);
+
+    // For imports, use bare mnemonic (no derivation) for compatibility with standard Substrate wallets
+    // For new wallets, use //0//0 derivation for HD wallet support
+    const derivationPath = isImport ? '' : '//0//0';
+    console.log('[WalletManager] Creating keypair with derivation path:', derivationPath || '(bare mnemonic)');
+    const pair = this.keyringService.createFromMnemonic(seedPhrase, derivationPath);
+    console.log('[WalletManager] Created wallet address:', pair.address);
 
     // Encrypt seed for storage
     const encrypted = EncryptionService.encrypt(seedPhrase, password);
@@ -76,7 +84,9 @@ export class WalletManager {
       publicKey: pair.publicKey.toString(),
       createdAt: new Date(),
       lastUsed: new Date(),
-      isActive: true
+      isActive: true,
+      currentAccountIndex: 0, // Default to first account
+      firstAccountDerivation: derivationPath, // Store derivation path for first account
     };
 
     // Deactivate other wallets
@@ -91,13 +101,19 @@ export class WalletManager {
     const id = await db.wallets.add(wallet);
     wallet.id = typeof id === 'number' ? id : Number(id);
 
-    // Create default account
-    await this.createAccount(wallet.id, 0, 'Main Account');
+    // Cache seed in session so createAccount can use it
+    this.decryptedSeed = seedPhrase;
 
-    // Set as current
+    // Create default account (no password needed - uses cached seed)
+    console.log('[WalletManager] Creating default account for wallet ID:', wallet.id);
+    const createdAccount = await this.createAccount(wallet.id, 0, 'Main Account');
+    console.log('[WalletManager] Default account created with address:', createdAccount.address);
+
+    // Set as current - both wallet and the derived keypair
     this.currentWallet = wallet;
     this.currentPair = pair;
 
+    console.log('[WalletManager] Wallet creation complete');
     return { wallet, mnemonic: seedPhrase };
   }
 
@@ -109,20 +125,30 @@ export class WalletManager {
     mnemonic: string,
     password: string
   ): Promise<Wallet> {
-    const result = await this.createWallet(name, password, mnemonic);
+    const result = await this.createWallet(name, password, mnemonic, true); // isImport=true
     return result.wallet;
   }
 
   /**
    * Unlock wallet with password
+   * Loads the last selected account based on currentAccountIndex
    */
   async unlockWallet(walletId: number, password: string): Promise<boolean> {
+    console.log('[WalletManager] unlockWallet called with walletId:', walletId);
     const wallet = await db.wallets.get(walletId);
     if (!wallet) {
       throw new Error('Wallet not found');
     }
 
+    console.log('[WalletManager] Wallet found:', {
+      id: wallet.id,
+      name: wallet.name,
+      address: wallet.address,
+      currentAccountIndex: wallet.currentAccountIndex
+    });
+
     // Try to decrypt seed
+    console.log('[WalletManager] Attempting to decrypt seed...');
     const decryptedSeed = EncryptionService.decrypt(
       wallet.encryptedSeed,
       wallet.nonce,
@@ -131,15 +157,76 @@ export class WalletManager {
     );
 
     if (!decryptedSeed) {
+      console.error('[WalletManager] Failed to decrypt seed - incorrect password');
       return false;
     }
 
-    // Create keypair from seed
-    const pair = this.keyringService.createFromMnemonic(decryptedSeed, wallet.name);
+    console.log('[WalletManager] Seed decrypted successfully, mnemonic length:', decryptedSeed.split(' ').length);
 
-    // Set as current
-    this.currentWallet = wallet;
+    // Cache decrypted seed in memory for session (cleared on lock)
+    this.decryptedSeed = decryptedSeed;
+    console.log('[WalletManager] Seed cached in session memory');
+
+    // Get all accounts for this wallet
+    const accounts = await db.accounts
+      .where('walletId')
+      .equals(walletId)
+      .toArray();
+
+    console.log('[WalletManager] Found accounts:', accounts.length);
+
+    // Determine which account to load
+    const accountIndex = wallet.currentAccountIndex ?? 0;
+    const selectedAccount = accounts.find(acc => acc.index === accountIndex) || accounts[0];
+
+    if (!selectedAccount) {
+      console.error('[WalletManager] No accounts found for wallet');
+      throw new Error('No accounts found for wallet');
+    }
+
+    console.log('═══════════════════════════════════════════════');
+    console.log('[UNLOCK DEBUG] Unlocking wallet');
+    console.log('[UNLOCK DEBUG] Wallet ID:', walletId);
+    console.log('[UNLOCK DEBUG] Wallet name:', wallet.name);
+    console.log('[UNLOCK DEBUG] Wallet address (stored):', wallet.address);
+    console.log('[UNLOCK DEBUG] Selected account:', {
+      index: selectedAccount.index,
+      address: selectedAccount.address,
+      derivationPath: selectedAccount.derivationPath,
+      name: selectedAccount.name
+    });
+    console.log('[UNLOCK DEBUG] Total accounts in wallet:', accounts.length);
+    console.log('[UNLOCK DEBUG] All accounts:', accounts.map(a => ({
+      index: a.index,
+      address: a.address,
+      name: a.name
+    })));
+    console.log('═══════════════════════════════════════════════');
+
+    // Create keypair from seed using the account's derivation path
+    console.log('[WalletManager] Deriving keypair with path:', selectedAccount.derivationPath);
+    const pair = this.keyringService.createFromMnemonic(
+      decryptedSeed,
+      selectedAccount.derivationPath
+    );
+
+    console.log('[WalletManager] Derived address:', pair.address);
+    console.log('[WalletManager] Expected address:', selectedAccount.address);
+
+    if (pair.address !== selectedAccount.address) {
+      console.error('[WalletManager] ADDRESS MISMATCH! Derived address does not match stored address');
+      console.error('[WalletManager] This means the derivation path is incorrect or wallet was created with wrong derivation');
+    }
+
+    // Set current wallet with the selected account's address
+    this.currentWallet = {
+      ...wallet,
+      address: selectedAccount.address,
+      publicKey: selectedAccount.publicKey,
+    };
     this.currentPair = pair;
+
+    console.log('[WalletManager] Wallet unlocked successfully');
 
     // Update last used
     await db.wallets.update(walletId, { lastUsed: new Date() });
@@ -152,33 +239,55 @@ export class WalletManager {
    * Lock current wallet
    */
   lockWallet(): void {
+    console.log('[WalletManager] Locking wallet and clearing session data');
     this.currentWallet = null;
     this.currentPair = null;
+
+    // Clear decrypted seed from memory for security
+    this.decryptedSeed = null;
+    console.log('[WalletManager] Decrypted seed cleared from memory');
   }
 
   /**
    * Create new account (derivation)
+   * Uses cached decrypted seed from session - wallet must be unlocked first!
    */
   async createAccount(
     walletId: number,
     index: number,
     name: string
   ): Promise<Account> {
+    console.log('[WalletManager] createAccount called for walletId:', walletId, 'index:', index);
+
+    // Check if wallet is unlocked (seed cached in memory)
+    if (!this.decryptedSeed) {
+      throw new Error('Wallet is locked. Please unlock wallet first.');
+    }
+
     const wallet = await db.wallets.get(walletId);
     if (!wallet) {
       throw new Error('Wallet not found');
     }
 
-    const derivationPath = `//0//${index}`;
+    console.log('[WalletManager] Using cached seed from session (no password needed)');
 
-    // For display purposes, we need to derive the address
-    // In a real unlock scenario, we'd derive from the decrypted mnemonic
+    // Derive the account's keypair using cached seed
+    // For the first account (index 0), use the wallet's firstAccountDerivation
+    // For subsequent accounts, use //0//1, //0//2, etc.
+    const derivationPath = index === 0 && wallet.firstAccountDerivation !== undefined
+      ? wallet.firstAccountDerivation
+      : `//0//${index}`;
+    console.log('[WalletManager] Deriving account with path:', derivationPath || '(bare mnemonic)');
+    const pair = this.keyringService.createFromMnemonic(this.decryptedSeed, derivationPath);
+    console.log('[WalletManager] Account derived with address:', pair.address);
+
+    // Create account with real derived address
     const account: Account = {
       walletId,
       index,
       name,
-      address: `${wallet.address.slice(0, 6)}...${index}`, // Placeholder
-      publicKey: wallet.publicKey,
+      address: pair.address,
+      publicKey: pair.publicKey.toString(),
       derivationPath,
       createdAt: new Date()
     };
@@ -198,45 +307,46 @@ export class WalletManager {
       throw new Error('No wallet selected');
     }
 
+    console.log('═══════════════════════════════════════════════');
+    console.log('[BALANCE DEBUG] Getting balance for address:', addr);
+    console.log('[BALANCE DEBUG] Address provided as param:', address || 'none (using currentWallet.address)');
+    console.log('[BALANCE DEBUG] Current wallet address:', this.currentWallet?.address);
+    console.log('[BALANCE DEBUG] Current pair address:', this.currentPair?.address);
+
     const balance = await this.client.getBalance(addr);
+
+    console.log('[BALANCE DEBUG] Balance returned from chain:', balance.free);
+    console.log('[BALANCE DEBUG] Balance in GLIN:', Number(BigInt(balance.free) / BigInt(1e18)));
+    console.log('═══════════════════════════════════════════════');
+
+    // Return raw balance - UI will format it for display
     return balance.free;
   }
 
   /**
    * Send transaction
+   * Uses cached decrypted seed from session - wallet must be unlocked first!
    */
   async sendTransaction(
     to: string,
-    amount: string,
-    password: string
+    amount: bigint
   ): Promise<string> {
     if (!this.currentWallet) {
       throw new Error('No wallet selected');
     }
 
-    // Decrypt seed and verify password
-    const decryptedSeed = EncryptionService.decrypt(
-      this.currentWallet.encryptedSeed,
-      this.currentWallet.nonce,
-      this.currentWallet.salt,
-      password
-    );
-
-    if (!decryptedSeed) {
-      throw new Error('Invalid password');
+    // Check if wallet is unlocked (seed cached in memory)
+    if (!this.decryptedSeed || !this.currentPair) {
+      throw new Error('Wallet is locked. Please unlock wallet first.');
     }
 
-    // Create keypair from seed if not already loaded
-    if (!this.currentPair) {
-      this.currentPair = this.keyringService.createFromMnemonic(decryptedSeed, this.currentWallet.name);
-    }
-
-    // Save transaction to database first
+    // Save transaction to database first (convert bigint to string for storage)
+    const amountStr = amount.toString();
     const txId = await db.transactions.add({
       hash: '', // Will be updated when we get the hash
       from: this.currentWallet.address,
       to,
-      amount,
+      amount: amountStr,
       fee: '0', // Will be updated with actual fee
       status: 'pending',
       timestamp: new Date(),
@@ -298,7 +408,7 @@ export class WalletManager {
   /**
    * Estimate transaction fee
    */
-  async estimateFee(to: string, amount: string): Promise<string> {
+  async estimateFee(to: string, amount: bigint): Promise<string> {
     if (!this.currentWallet) {
       throw new Error('No wallet selected');
     }
@@ -354,6 +464,79 @@ export class WalletManager {
   }
 
   /**
+   * Switch to a different wallet
+   * Requires password to decrypt the target wallet's seed
+   */
+  async switchWallet(walletId: number, password: string): Promise<boolean> {
+    console.log('[WalletManager] switchWallet called for walletId:', walletId);
+
+    // Get the target wallet
+    const targetWallet = await db.wallets.get(walletId);
+    if (!targetWallet) {
+      throw new Error('Wallet not found');
+    }
+
+    // Try to decrypt seed to verify password
+    console.log('[WalletManager] Verifying password for target wallet');
+    const decryptedSeed = EncryptionService.decrypt(
+      targetWallet.encryptedSeed,
+      targetWallet.nonce,
+      targetWallet.salt,
+      password
+    );
+
+    if (!decryptedSeed) {
+      console.error('[WalletManager] Failed to decrypt target wallet - incorrect password');
+      return false;
+    }
+
+    console.log('[WalletManager] Password verified, switching wallet');
+
+    // Deactivate all wallets
+    await db.wallets.toCollection().modify({ isActive: false });
+
+    // Activate target wallet
+    await db.wallets.update(walletId, {
+      isActive: true,
+      lastUsed: new Date()
+    });
+
+    // Get first account from target wallet
+    const accounts = await db.accounts
+      .where('walletId')
+      .equals(walletId)
+      .toArray();
+
+    if (accounts.length === 0) {
+      throw new Error('No accounts found for this wallet');
+    }
+
+    // Load first account (or use currentAccountIndex if set)
+    const accountIndex = targetWallet.currentAccountIndex ?? 0;
+    const selectedAccount = accounts.find(acc => acc.index === accountIndex) || accounts[0];
+
+    console.log('[WalletManager] Loading account:', selectedAccount.name, 'at index:', selectedAccount.index);
+
+    // Derive keypair for selected account
+    const pair = this.keyringService.createFromMnemonic(
+      decryptedSeed,
+      selectedAccount.derivationPath
+    );
+
+    // Update current wallet and keypair
+    this.currentWallet = {
+      ...targetWallet,
+      address: selectedAccount.address,
+      publicKey: selectedAccount.publicKey,
+    };
+    this.currentPair = pair;
+    this.decryptedSeed = decryptedSeed;
+
+    console.log('[WalletManager] Wallet switched successfully to:', targetWallet.name);
+    return true;
+  }
+
+  /**
    * Export wallet seed phrase
    */
   exportSeedPhrase(password: string): string | null {
@@ -382,6 +565,20 @@ export class WalletManager {
   async hasWallet(): Promise<boolean> {
     const wallets = await db.wallets.toArray();
     return wallets.length > 0;
+  }
+
+  /**
+   * Check wallet status without loading it (for lock state detection)
+   * Returns whether wallet is initialized and locked
+   */
+  async getWalletStatus(): Promise<{ hasWallet: boolean; isLocked: boolean }> {
+    const hasWallet = await this.hasWallet();
+    const isLocked = hasWallet && !this.currentWallet;
+
+    return {
+      hasWallet,
+      isLocked,
+    };
   }
 
   /**
@@ -424,12 +621,27 @@ export class WalletManager {
 
   /**
    * Switch to a different account by address
+   * Uses cached decrypted seed from session - wallet must be unlocked first!
    */
   async switchAccount(address: string): Promise<boolean> {
+    console.log('[WalletManager] switchAccount called for address:', address);
+
     if (!this.currentWallet) {
       throw new Error('No wallet unlocked');
     }
 
+    // Check if wallet is unlocked (seed cached in memory)
+    if (!this.decryptedSeed) {
+      throw new Error('Wallet is locked. Please unlock wallet first.');
+    }
+
+    // Get the wallet from DB
+    const wallet = await db.wallets.get(this.currentWallet.id!);
+    if (!wallet) {
+      throw new Error('Wallet not found');
+    }
+
+    // Find the account to switch to
     const account = await db.accounts
       .where('[walletId+address]')
       .equals([this.currentWallet.id!, address])
@@ -439,10 +651,30 @@ export class WalletManager {
       throw new Error('Account not found');
     }
 
-    // Update current wallet's address to the selected account
+    console.log('[WalletManager] Switching to account:', account.name, 'at index:', account.index);
+    console.log('[WalletManager] Using cached seed from session (no password needed)');
+
+    // Derive the keypair for this account using cached seed
+    const pair = this.keyringService.createFromMnemonic(
+      this.decryptedSeed,
+      account.derivationPath
+    );
+
+    console.log('[WalletManager] Keypair derived for address:', pair.address);
+
+    // Update current wallet and keypair
     this.currentWallet.address = account.address;
     this.currentWallet.publicKey = account.publicKey;
+    this.currentWallet.currentAccountIndex = account.index;
+    this.currentPair = pair;
 
+    // Persist the switch to database
+    await db.wallets.update(wallet.id!, {
+      currentAccountIndex: account.index,
+      lastUsed: new Date(),
+    });
+
+    console.log('[WalletManager] Account switch successful');
     return true;
   }
 

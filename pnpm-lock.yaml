@@ -88,8 +88,8 @@ importers:
   packages/extension-base:
     dependencies:
       '@glin-ai/sdk':
-        specifier: file:../../../glin-sdk/packages/js
-        version: file:../glin-sdk/packages/js
+        specifier: ^0.4.0
+        version: 0.4.0
       '@polkadot/api':
         specifier: ^10.11.2
         version: 10.13.1
@@ -134,6 +134,9 @@ importers:
 
   packages/extension-ui:
     dependencies:
+      '@glin-ai/sdk':
+        specifier: ^0.4.0
+        version: 0.4.0
       '@glin-extension/extension-base':
         specifier: workspace:*
         version: link:../extension-base
@@ -469,8 +472,8 @@ packages:
     resolution: {integrity: sha512-d9zaMRSTIKDLhctzH12MtXvJKSSUhaHcjV+2Z+GK+EEY7XKpP5yR4x+N3TAcHTcu963nIr+TMcCb4DBCYX1z6Q==}
     engines: {node: ^12.22.0 || ^14.17.0 || >=16.0.0}
 
-  '@glin-ai/sdk@file:../glin-sdk/packages/js':
-    resolution: {directory: ../glin-sdk/packages/js, type: directory}
+  '@glin-ai/sdk@0.4.0':
+    resolution: {integrity: sha512-PFikZP4ydmqCsFDuzP0gY8sQ0mSYvpI23dFX20TgZ1mevprhJ/48wCYSBcTrzjsQAeXpaa6KjXNgdngYmFMSEw==}
 
   '@humanwhocodes/config-array@0.13.0':
     resolution: {integrity: sha512-DZLEEqFWQFiyK6h5YIeynKx7JlvCYWL0cImfSRXZ9l4Sg2efkFGTuFf6vzXjK1cq6IYkU+Eg/JizXw+TD2vRNw==}
@@ -2422,7 +2425,7 @@ snapshots:
 
   '@eslint/js@8.57.1': {}
 
-  '@glin-ai/sdk@file:../glin-sdk/packages/js':
+  '@glin-ai/sdk@0.4.0':
     dependencies:
       '@polkadot/api': 12.4.2
       '@polkadot/api-contract': 12.4.2

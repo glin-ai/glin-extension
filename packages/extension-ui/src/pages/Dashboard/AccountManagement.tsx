@@ -183,7 +183,7 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({
       await loadAccounts();
     } catch (error) {
       console.error('Failed to create account:', error);
-      alert('Failed to create account');
+      alert(error instanceof Error ? error.message : 'Failed to create account');
     } finally {
       setCreating(false);
     }
@@ -208,14 +208,19 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({
   };
 
   const handleSwitchAccount = async (address: string) => {
+    // Prompt for password
+    const password = prompt('Enter your password to switch account:');
+    if (!password) return;
+
     try {
       await messageBridge.sendToBackground(MessageType.SWITCH_ACCOUNT, {
         address,
+        password,
       });
       onAccountSwitch(address);
     } catch (error) {
       console.error('Failed to switch account:', error);
-      alert('Failed to switch account');
+      alert(error instanceof Error ? error.message : 'Failed to switch account');
     }
   };
 
@@ -286,7 +291,10 @@ export const AccountManagement: React.FC<AccountManagementProps> = ({
                   type="button"
                   variant="secondary"
                   fullWidth
-                  onClick={() => setShowCreateForm(false)}
+                  onClick={() => {
+                    setShowCreateForm(false);
+                    setNewAccountName('');
+                  }}
                   disabled={creating}
                 >
                   Cancel

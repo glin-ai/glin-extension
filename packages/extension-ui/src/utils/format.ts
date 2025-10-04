@@ -1,5 +1,8 @@
 /**
  * Format utilities for GLIN Wallet
+ *
+ * Note: For amount conversions, use parseGLIN() and formatGLIN() from '@glin-ai/sdk'
+ * These utilities are for UI-specific formatting only.
  */
 
 /**
@@ -47,4 +50,17 @@ export function formatBalance(balance: string): string {
  */
 export function formatAddress(address: string): string {
   return `${address.slice(0, 6)}...${address.slice(-4)}`;
+}
+
+/**
+ * Convert user input amount (in GLIN) to smallest unit (planck)
+ *
+ * @deprecated Use parseGLIN() from '@glin-ai/sdk' instead
+ * @example
+ * import { parseGLIN } from '@glin-ai/sdk';
+ * const amountPlanck = parseGLIN("10.5");
+ */
+export function parseAmountToSmallestUnit(amount: string): string {
+  // This function is deprecated - import parseGLIN from SDK
+  throw new Error('parseAmountToSmallestUnit is deprecated. Use parseGLIN from @glin-ai/sdk instead.');
 }

@@ -221,7 +221,7 @@ export class WalletSDK {
   async transfer(
     from: KeyringPair,
     to: string,
-    amount: string,
+    amount: bigint,
     onStatus?: (status: ISubmittableResult) => void
   ): Promise<string> {
     if (this.config.useSDKForTransfer && this.transferModule) {
@@ -230,9 +230,9 @@ export class WalletSDK {
 
     // Fallback to direct API
     const api = this.getApi();
-    const decimals = 18;
-    const amountInSmallestUnit = BigInt(Math.floor(parseFloat(amount) * (10 ** decimals))).toString();
-    const transfer = api.tx.balances.transferKeepAlive(to, amountInSmallestUnit);
+
+    // Amount is already in planck (smallest unit) as bigint
+    const transfer = api.tx.balances.transferKeepAlive(to, amount);
 
     return new Promise((resolve, reject) => {
       transfer.signAndSend(from, (result) => {
@@ -257,7 +257,7 @@ export class WalletSDK {
   async estimateFee(
     from: string,
     to: string,
-    amount: string
+    amount: bigint
   ): Promise<string> {
     if (this.config.useSDKForTransfer) {
       return await this.client.estimateFee(from, to, amount);
@@ -265,9 +265,9 @@ export class WalletSDK {
 
     // Fallback to direct API
     const api = this.getApi();
-    const decimals = 18;
-    const amountInSmallestUnit = BigInt(Math.floor(parseFloat(amount) * (10 ** decimals))).toString();
-    const transfer = api.tx.balances.transferKeepAlive(to, amountInSmallestUnit);
+
+    // Amount is already in planck (smallest unit) as bigint
+    const transfer = api.tx.balances.transferKeepAlive(to, amount);
     const info = await transfer.paymentInfo(from);
     return info.partialFee.toString();
   }

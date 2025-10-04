@@ -25,6 +25,7 @@ export class EncryptionService {
     nonce: string;
     salt: string;
   } {
+    console.log('[EncryptionService] encrypt called with password length:', password.length);
     const salt = randomAsU8a(32);
     const key = this.deriveKey(password, salt);
     const nonce = randomAsU8a(24);
@@ -34,6 +35,8 @@ export class EncryptionService {
       : data;
 
     const encrypted = nacl.secretbox(dataBytes, nonce, key.slice(0, 32));
+
+    console.log('[EncryptionService] Data encrypted successfully, salt length:', salt.length);
 
     return {
       encrypted: naclUtil.encodeBase64(encrypted),
@@ -52,10 +55,15 @@ export class EncryptionService {
     password: string
   ): string | null {
     try {
+      console.log('[EncryptionService] decrypt called with password length:', password.length);
+      console.log('[EncryptionService] Salt:', salt.substring(0, 20) + '...');
+
       const key = this.deriveKey(
         password,
         naclUtil.decodeBase64(salt)
       );
+
+      console.log('[EncryptionService] Key derived, attempting decryption...');
 
       const decrypted = nacl.secretbox.open(
         naclUtil.decodeBase64(encryptedData),
@@ -64,12 +72,14 @@ export class EncryptionService {
       );
 
       if (!decrypted) {
+        console.error('[EncryptionService] Decryption returned null - INCORRECT PASSWORD');
         return null;
       }
 
+      console.log('[EncryptionService] Decryption successful!');
       return naclUtil.encodeUTF8(decrypted);
     } catch (error) {
-      console.error('Decryption failed:', error);
+      console.error('[EncryptionService] Decryption exception:', error);
       return null;
     }
   }

@@ -11,6 +11,8 @@ export interface Wallet {
   createdAt: Date;
   lastUsed: Date;
   isActive: boolean;
+  currentAccountIndex?: number; // Index of the currently selected account (for multi-account support)
+  firstAccountDerivation?: string; // Derivation path for first account (empty string = bare mnemonic, //0//0 = HD wallet)
 }
 
 export interface Account {
@@ -72,6 +74,34 @@ class GlinWalletDB extends Dexie {
 
   constructor() {
     super('GlinWalletDB');
+
+    // Version 4: Added compound index [walletId+address] for account switching
+    this.version(4).stores({
+      wallets: '++id, address',
+      accounts: '++id, walletId, address, [walletId+address]',
+      transactions: '++id, hash, from, to, timestamp',
+      contacts: '++id, address',
+      activities: '++id, type, timestamp',
+      settings: '++id, key'
+    });
+
+    // Version 3: Added currentAccountIndex to Wallet
+    this.version(3).stores({
+      wallets: '++id, address',
+      accounts: '++id, walletId, address',
+      transactions: '++id, hash, from, to, timestamp',
+      contacts: '++id, address',
+      activities: '++id, type, timestamp',
+      settings: '++id, key'
+    }).upgrade(async trans => {
+      // Migration: add currentAccountIndex field (defaults to 0 for first account)
+      const wallets = trans.table('wallets');
+      await wallets.toCollection().modify(wallet => {
+        if (wallet.currentAccountIndex === undefined) {
+          wallet.currentAccountIndex = 0;
+        }
+      });
+    });
 
     // Version 2: Changed index strategy for isActive
     this.version(2).stores({

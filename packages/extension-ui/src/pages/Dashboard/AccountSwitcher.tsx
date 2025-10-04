@@ -177,11 +177,23 @@ export const AccountSwitcher: React.FC<AccountSwitcherProps> = ({
     }
   };
 
-  const handleAccountSelect = (address: string) => {
-    if (address !== currentAccount.address) {
-      onAccountChange(address);
+  const handleAccountSelect = async (address: string) => {
+    if (address === currentAccount.address) {
+      onClose();
+      return;
     }
-    onClose();
+
+    // No password needed - uses cached seed from session
+    try {
+      await messageBridge.sendToBackground(MessageType.SWITCH_ACCOUNT, {
+        address,
+      });
+      onAccountChange(address);
+      onClose();
+    } catch (error) {
+      console.error('Failed to switch account:', error);
+      alert(error instanceof Error ? error.message : 'Failed to switch account');
+    }
   };
 
   const handleOverlayClick = (e: React.MouseEvent) => {

@@ -16,6 +16,7 @@ import {
 } from '../../components/Layout';
 import { theme } from '../../theme';
 import { AccountSwitcher } from './AccountSwitcher';
+import { WalletSwitcher } from './WalletSwitcher';
 import { NetworkIndicator } from '../../components/NetworkIndicator';
 
 interface Account {
@@ -35,6 +36,7 @@ interface DashboardProps {
   onManageAccounts?: () => void;
   onAccountSwitch?: () => void;
   onNetworkClick?: () => void;
+  onImportWallet?: () => void;
 }
 
 const AccountSelector = styled.button`
@@ -195,6 +197,7 @@ export const Dashboard: React.FC<DashboardProps> = ({
   onManageAccounts,
   onAccountSwitch,
   onNetworkClick,
+  onImportWallet,
 }) => {
   const [showAccountSwitcher, setShowAccountSwitcher] = useState(false);
   const [activities, setActivities] = useState<Activity[]>([]);
@@ -276,6 +279,15 @@ export const Dashboard: React.FC<DashboardProps> = ({
       </Header>
 
       <Content>
+        <WalletSwitcher
+          currentWalletName={account.name}
+          currentWalletAddress={account.address}
+          onWalletChanged={() => {
+            window.location.reload(); // Reload to update UI with new wallet
+          }}
+          onImportWallet={onImportWallet}
+        />
+
         <AccountSelector onClick={() => setShowAccountSwitcher(true)}>
           <AccountInfo>
             <AccountName>{account.name}</AccountName>

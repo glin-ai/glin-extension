@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { MessageBridge, MessageType } from '@glin-extension/extension-base';
 import { NetworkId } from '@glin-extension/extension-base/src/types/networks';
+import { parseGLIN } from '@glin-ai/sdk';
 
 // Pages
 import { Welcome, CreateWallet, ShowMnemonic, ImportWallet } from './pages/Onboarding';
@@ -170,9 +171,12 @@ export const App: React.FC = () => {
   // Send transaction
   const handleSend = async (recipient: string, amount: string) => {
     try {
+      // Convert amount from GLIN to smallest unit (planck) using SDK
+      const amountPlanck = parseGLIN(amount);
+
       await messageBridge.sendToBackground(MessageType.SEND_TRANSACTION, {
         recipient,
-        amount,
+        amount: amountPlanck.toString(), // Send in smallest unit as string over message bridge
       });
 
       // Refresh wallet state after transaction
@@ -291,6 +295,7 @@ export const App: React.FC = () => {
           onManageAccounts={() => setCurrentScreen('account-management')}
           onAccountSwitch={() => checkWalletState()}
           onNetworkClick={() => setCurrentScreen('network-switcher')}
+          onImportWallet={() => setCurrentScreen('import-wallet')}
         />
       );
 
@@ -395,8 +400,8 @@ export const App: React.FC = () => {
                 customRpcUrl,
               });
               setCurrentNetwork(networkId);
-              await checkWalletState(); // Refresh wallet state with new network
-              setCurrentScreen('settings');
+              await checkWalletState(); // Refresh wallet state - will navigate to unlock if locked
+              // Don't force navigate to settings - let checkWalletState decide based on lock status
             } catch (error) {
               console.error('Failed to change network:', error);
               throw error;

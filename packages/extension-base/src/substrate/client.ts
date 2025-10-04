@@ -105,7 +105,12 @@ export class SubstrateClient {
    */
   async getBalance(address: string): Promise<Balance> {
     const api = this.getApi();
+
+    console.log('[CLIENT DEBUG] Querying chain for address:', address);
+
     const account = await api.query.system.account(address);
+
+    console.log('[CLIENT DEBUG] Raw account data from chain:', JSON.stringify(account.toHuman(), null, 2));
 
     // Type assertion for Substrate account structure
     const accountInfo = account as unknown as {
@@ -176,16 +181,13 @@ export class SubstrateClient {
   async transfer(
     from: KeyringPair,
     to: string,
-    amount: string,
+    amount: bigint,
     onStatus?: (status: ISubmittableResult) => void
   ): Promise<string> {
     const api = this.getApi();
 
-    // Convert amount to smallest unit (18 decimals for tGLIN)
-    const decimals = 18;
-    const amountInSmallestUnit = BigInt(Math.floor(parseFloat(amount) * (10 ** decimals))).toString();
-
-    const transfer = api.tx.balances.transferKeepAlive(to, amountInSmallestUnit);
+    // Amount is already in planck (smallest unit) as bigint
+    const transfer = api.tx.balances.transferKeepAlive(to, amount);
 
     return new Promise((resolve, reject) => {
       transfer.signAndSend(from, (result) => {
@@ -216,15 +218,12 @@ export class SubstrateClient {
   async estimateFee(
     from: string,
     to: string,
-    amount: string
+    amount: bigint
   ): Promise<string> {
     const api = this.getApi();
 
-    // Convert amount to smallest unit (18 decimals for tGLIN)
-    const decimals = 18;
-    const amountInSmallestUnit = BigInt(Math.floor(parseFloat(amount) * (10 ** decimals))).toString();
-
-    const transfer = api.tx.balances.transferKeepAlive(to, amountInSmallestUnit);
+    // Amount is already in planck (smallest unit) as bigint
+    const transfer = api.tx.balances.transferKeepAlive(to, amount);
     const info = await transfer.paymentInfo(from);
     return info.partialFee.toString();
   }
