@@ -7,7 +7,7 @@ import { parseGLIN } from '@glin-ai/sdk';
 import { Welcome, CreateWallet, ShowMnemonic, ImportWallet } from './pages/Onboarding';
 import { Unlock } from './pages/Unlock';
 import { Dashboard, Send, Receive, AccountManagement } from './pages/Dashboard';
-import { ConnectedSites } from './pages/DappIntegration';
+import { ConnectedSites, ConnectionRequest } from './pages/DappIntegration';
 import { ProviderDashboard, TaskList, TestnetPoints } from './pages/Provider';
 import { Settings, NetworkSwitcher, BackupWallet, ChangePassword, ThemeSelector } from './pages/Settings';
 
@@ -20,6 +20,7 @@ type Screen =
   | 'dashboard'
   | 'send'
   | 'receive'
+  | 'connection-request'
   | 'connected-sites'
   | 'account-management'
   | 'provider-dashboard'
@@ -59,14 +60,42 @@ export const App: React.FC = () => {
   const [connectedSites, setConnectedSites] = useState<ConnectedSite[]>([]);
   const [currentNetwork, setCurrentNetwork] = useState<NetworkId>('localhost');
   const [currentTheme, setCurrentTheme] = useState<'dark' | 'light'>('dark');
+  const [pendingRequest, setPendingRequest] = useState<{
+    id: string;
+    origin: string;
+    appName: string;
+    appIcon?: string;
+  } | null>(null);
 
   const messageBridge = new MessageBridge();
 
-  // Initialize: Check wallet state on mount
+  // Initialize: Check wallet state on mount and parse URL
   useEffect(() => {
     checkWalletState();
     loadSettings();
+    parseUrlParams();
   }, []);
+
+  // Parse URL parameters for connection requests
+  const parseUrlParams = async () => {
+    const hash = window.location.hash;
+    if (hash.includes('/connection-request')) {
+      const params = new URLSearchParams(hash.split('?')[1]);
+      const requestId = params.get('id');
+
+      if (requestId) {
+        try {
+          const request = await messageBridge.sendToBackground(MessageType.GET_PENDING_REQUEST, { requestId });
+          setPendingRequest(request);
+          setCurrentScreen('connection-request');
+        } catch (error) {
+          console.error('Failed to load pending request:', error);
+          // Request not found or expired - close popup
+          window.close();
+        }
+      }
+    }
+  };
 
   const loadSettings = async () => {
     try {
@@ -220,6 +249,32 @@ export const App: React.FC = () => {
     }
   };
 
+  // Approve connection request
+  const handleApproveConnection = async () => {
+    if (!pendingRequest) return;
+
+    try {
+      await messageBridge.sendToBackground(MessageType.APPROVE_CONNECTION, { requestId: pendingRequest.id });
+      window.close(); // Close popup after approval
+    } catch (error) {
+      console.error('Failed to approve connection:', error);
+      alert('Failed to approve connection');
+    }
+  };
+
+  // Reject connection request
+  const handleRejectConnection = async () => {
+    if (!pendingRequest) return;
+
+    try {
+      await messageBridge.sendToBackground(MessageType.REJECT_CONNECTION, { requestId: pendingRequest.id });
+      window.close(); // Close popup after rejection
+    } catch (error) {
+      console.error('Failed to reject connection:', error);
+      window.close(); // Close anyway
+    }
+  };
+
   if (loading) {
     return (
       <div
@@ -313,6 +368,27 @@ export const App: React.FC = () => {
         <Receive
           address={walletState.currentAccount?.address || ''}
           onBack={() => setCurrentScreen('dashboard')}
+        />
+      );
+
+    case 'connection-request':
+      if (!pendingRequest || !walletState.currentAccount) {
+        // Request not loaded or no account - close window
+        window.close();
+        return null;
+      }
+
+      return (
+        <ConnectionRequest
+          origin={pendingRequest.origin}
+          appName={pendingRequest.appName}
+          appIcon={pendingRequest.appIcon}
+          account={{
+            address: walletState.currentAccount.address,
+            name: walletState.currentAccount.name,
+          }}
+          onApprove={handleApproveConnection}
+          onReject={handleRejectConnection}
         />
       );
 

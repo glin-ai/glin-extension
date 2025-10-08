@@ -37,6 +37,9 @@ export enum MessageType {
 
   // Dapp interaction
   REQUEST_CONNECTION = 'REQUEST_CONNECTION',
+  APPROVE_CONNECTION = 'APPROVE_CONNECTION',
+  REJECT_CONNECTION = 'REJECT_CONNECTION',
+  GET_PENDING_REQUEST = 'GET_PENDING_REQUEST',
   DISCONNECT_SITE = 'DISCONNECT_SITE',
   GET_CONNECTED_SITES = 'GET_CONNECTED_SITES',
 
@@ -128,6 +131,8 @@ export interface WalletState {
   isInitialized: boolean;
   isLocked: boolean;
   isConnected: boolean;
+  connectionStatus?: 'disconnected' | 'connecting' | 'connected' | 'error';
+  connectionError?: string | null;
   currentAccount?: {
     address: string;
     name: string;

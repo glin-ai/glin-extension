@@ -9,6 +9,7 @@ import { u8aToHex, u8aWrapBytes, stringToU8a } from '@polkadot/util';
 import { db } from '../storage/db';
 import { setCurrentNetwork, getCurrentNetwork } from '../storage/network';
 import { getNetworkById } from '../types/networks';
+import { openApprovalPopup } from './popup';
 
 export class MessageHandlers {
   private handlers: Map<MessageType, MessageHandler> = new Map();
@@ -48,6 +49,9 @@ export class MessageHandlers {
 
     // Dapp interaction
     this.handlers.set(MessageType.REQUEST_CONNECTION, this.handleRequestConnection.bind(this));
+    this.handlers.set(MessageType.APPROVE_CONNECTION, this.handleApproveConnection.bind(this));
+    this.handlers.set(MessageType.REJECT_CONNECTION, this.handleRejectConnection.bind(this));
+    this.handlers.set(MessageType.GET_PENDING_REQUEST, this.handleGetPendingRequest.bind(this));
     this.handlers.set(MessageType.DISCONNECT_SITE, this.handleDisconnectSite.bind(this));
     this.handlers.set(MessageType.GET_CONNECTED_SITES, this.handleGetConnectedSites.bind(this));
 
@@ -304,8 +308,16 @@ export class MessageHandlers {
       throw new Error('Wallet manager not initialized');
     }
 
-    const balance = await manager.getBalance();
-    return { balance };
+    try {
+      const balance = await manager.getBalance();
+      return { balance };
+    } catch (error) {
+      // If network connection fails, return error with connection status
+      const connectionStatus = manager.getConnectionStatus();
+      throw new Error(
+        `Failed to fetch balance: ${connectionStatus.error || 'Network unavailable'}`
+      );
+    }
   }
 
   private async handleSendTransaction(message: RequestMessage): Promise<any> {
@@ -432,24 +444,104 @@ export class MessageHandlers {
       throw new Error('Wallet manager not initialized');
     }
 
-    // Check if wallet exists
-    const wallet = manager.getCurrentWallet();
-    if (!wallet) {
+    // Check wallet status (exists and locked state)
+    const walletStatus = await manager.getWalletStatus();
+
+    if (!walletStatus.hasWallet) {
       throw new Error('No wallet found. Please create or import a wallet first.');
     }
 
-    // Check if already connected
+    if (walletStatus.isLocked) {
+      // Wallet exists but is locked - open extension to unlock
+      chrome.action.openPopup().catch(() => {
+        // Popup API not available, open in new tab instead
+        chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
+      });
+      throw new Error('Wallet is locked. Please unlock your wallet first.');
+    }
+
+    // Check if already connected - if so, return accounts immediately
     if (backgroundState.isConnected(origin)) {
       const accounts = await this.handleGetAccounts(message);
       return { accounts, approved: true };
     }
 
-    // TODO: Show approval popup to user
-    // For now, auto-approve for development
-    backgroundState.addConnectedSite(origin, appName || origin, appIcon);
-    const accounts = await this.handleGetAccounts(message);
+    // Show approval popup to user
+    return new Promise((resolve, reject) => {
+      const requestId = `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
 
-    return { accounts, approved: true };
+      // Add to pending requests
+      backgroundState.addPendingRequest({
+        id: requestId,
+        origin,
+        appName: appName || origin,
+        appIcon,
+        timestamp: Date.now(),
+        resolve,
+        reject,
+      });
+
+      // Open approval popup
+      openApprovalPopup(requestId).then((windowId) => {
+        // Track popup window for cleanup
+        backgroundState.setPendingRequestWindow(requestId, windowId);
+
+        // Listen for window close (user closed without decision = reject)
+        chrome.windows.onRemoved.addListener(function windowCloseHandler(closedWindowId) {
+          if (closedWindowId === windowId) {
+            chrome.windows.onRemoved.removeListener(windowCloseHandler);
+            // If request still pending, reject it
+            if (backgroundState.getPendingRequest(requestId)) {
+              backgroundState.rejectPendingRequest(requestId, 'User closed popup');
+            }
+          }
+        });
+      }).catch(reject);
+    });
+  }
+
+  private async handleApproveConnection(message: RequestMessage): Promise<any> {
+    const { requestId } = message.payload;
+
+    if (!requestId) {
+      throw new Error('Request ID is required');
+    }
+
+    await backgroundState.approvePendingRequest(requestId);
+    return { success: true };
+  }
+
+  private async handleRejectConnection(message: RequestMessage): Promise<any> {
+    const { requestId, reason } = message.payload;
+
+    if (!requestId) {
+      throw new Error('Request ID is required');
+    }
+
+    backgroundState.rejectPendingRequest(requestId, reason);
+    return { success: true };
+  }
+
+  private async handleGetPendingRequest(message: RequestMessage): Promise<any> {
+    const { requestId } = message.payload;
+
+    if (!requestId) {
+      throw new Error('Request ID is required');
+    }
+
+    const request = backgroundState.getPendingRequest(requestId);
+    if (!request) {
+      throw new Error('Request not found or already processed');
+    }
+
+    // Return request data without the resolve/reject functions
+    return {
+      id: request.id,
+      origin: request.origin,
+      appName: request.appName,
+      appIcon: request.appIcon,
+      timestamp: request.timestamp,
+    };
   }
 
   private async handleDisconnectSite(message: RequestMessage): Promise<any> {

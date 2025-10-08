@@ -7,3 +7,4 @@
 export * from './messaging/types';
 export * from './messaging/bridge';
 export * from './background/state';
+export type { ConnectionStatus } from './substrate/wallet';

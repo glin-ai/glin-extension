@@ -1,4 +1,6 @@
+import { Keyring } from '@polkadot/keyring';
 import { KeyringPair } from '@polkadot/keyring/types';
+import { u8aToHex } from '@polkadot/util';
 import { MnemonicService } from '../crypto/mnemonic';
 import { KeyringService } from '../crypto/keyring';
 import { EncryptionService } from '../crypto/encryption';
@@ -11,6 +13,8 @@ export interface WalletService {
   client: WalletSDK;
 }
 
+export type ConnectionStatus = 'disconnected' | 'connecting' | 'connected' | 'error';
+
 export class WalletManager {
   private keyringService: KeyringService;
   private client: WalletSDK;
@@ -20,6 +24,11 @@ export class WalletManager {
   // Session state - decrypted seed cached in memory while wallet is unlocked
   // This is cleared on lock() for security
   private decryptedSeed: string | null = null;
+
+  // Connection state - for lazy connection
+  private connectionStatus: ConnectionStatus = 'disconnected';
+  private lastConnectionError: string | null = null;
+  private connectionPromise: Promise<void> | null = null;
 
   constructor(rpcEndpoint: string) {
     this.keyringService = new KeyringService();
@@ -32,17 +41,81 @@ export class WalletManager {
   }
 
   /**
-   * Initialize wallet manager
+   * Initialize wallet manager (OFFLINE - no network connection)
    * NOTE: Does NOT auto-load wallet for security - wallet remains locked until unlocked with password
+   * NOTE: Does NOT connect to network - connection is lazy and happens on-demand
    */
   async init(): Promise<void> {
-    console.log('[WalletManager] init() called');
+    console.log('[WalletManager] init() called - initializing offline (no network connection)');
     await this.keyringService.init();
-    await this.client.connect();
 
-    // DO NOT auto-load wallet - this would bypass the lock screen!
-    // Wallet must be explicitly unlocked with password via unlockWallet()
-    console.log('[WalletManager] Initialized - wallet remains locked until unlocked with password');
+    // DO NOT connect to network here - make it lazy!
+    // Network connection will happen on-demand when needed (balance check, send transaction, etc.)
+    console.log('[WalletManager] Initialized offline - wallet remains locked until unlocked with password');
+    console.log('[WalletManager] Network connection will be established on-demand when needed');
+  }
+
+  /**
+   * Ensure network connection is established (lazy connection)
+   * Safe to call multiple times - will only connect once
+   */
+  async ensureConnected(): Promise<void> {
+    // Already connected
+    if (this.connectionStatus === 'connected' && this.client.isConnected()) {
+      return;
+    }
+
+    // Connection in progress - wait for it
+    if (this.connectionPromise) {
+      return this.connectionPromise;
+    }
+
+    // Start new connection
+    console.log('[WalletManager] Establishing network connection...');
+    this.connectionStatus = 'connecting';
+    this.lastConnectionError = null;
+
+    this.connectionPromise = (async () => {
+      try {
+        await this.client.connect();
+        this.connectionStatus = 'connected';
+        this.lastConnectionError = null;
+        console.log('[WalletManager] Network connection established');
+      } catch (error) {
+        this.connectionStatus = 'error';
+        this.lastConnectionError = error instanceof Error ? error.message : 'Unknown connection error';
+        console.error('[WalletManager] Network connection failed:', this.lastConnectionError);
+        throw new Error(`Network connection failed: ${this.lastConnectionError}`);
+      } finally {
+        this.connectionPromise = null;
+      }
+    })();
+
+    return this.connectionPromise;
+  }
+
+  /**
+   * Get current connection status
+   */
+  getConnectionStatus(): { status: ConnectionStatus; error: string | null } {
+    return {
+      status: this.connectionStatus,
+      error: this.lastConnectionError,
+    };
+  }
+
+  /**
+   * Manually disconnect from network
+   */
+  async disconnect(): Promise<void> {
+    try {
+      await this.client.disconnect();
+      this.connectionStatus = 'disconnected';
+      this.lastConnectionError = null;
+      console.log('[WalletManager] Disconnected from network');
+    } catch (error) {
+      console.error('[WalletManager] Error during disconnect:', error);
+    }
   }
 
   /**
@@ -307,6 +380,9 @@ export class WalletManager {
       throw new Error('No wallet selected');
     }
 
+    // Ensure network connection before fetching balance
+    await this.ensureConnected();
+
     console.log('═══════════════════════════════════════════════');
     console.log('[BALANCE DEBUG] Getting balance for address:', addr);
     console.log('[BALANCE DEBUG] Address provided as param:', address || 'none (using currentWallet.address)');
@@ -339,6 +415,9 @@ export class WalletManager {
     if (!this.decryptedSeed || !this.currentPair) {
       throw new Error('Wallet is locked. Please unlock wallet first.');
     }
+
+    // Ensure network connection before sending transaction
+    await this.ensureConnected();
 
     // Save transaction to database first (convert bigint to string for storage)
     const amountStr = amount.toString();
@@ -412,6 +491,9 @@ export class WalletManager {
     if (!this.currentWallet) {
       throw new Error('No wallet selected');
     }
+
+    // Ensure network connection before estimating fee
+    await this.ensureConnected();
 
     return await this.client.estimateFee(
       this.currentWallet.address,
@@ -722,12 +804,16 @@ export class WalletManager {
     }
 
     // Decrypt the seed
-    const mnemonic = await this.decryptSeed(
+    const mnemonic = EncryptionService.decrypt(
       wallet.encryptedSeed,
       wallet.nonce,
       wallet.salt,
       password
     );
+
+    if (!mnemonic) {
+      throw new Error('Incorrect password');
+    }
 
     // Derive the account's keypair from the mnemonic
     const keyring = new Keyring({ type: 'sr25519' });

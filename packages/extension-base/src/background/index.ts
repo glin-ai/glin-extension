@@ -23,11 +23,12 @@ async function init() {
 
     // Get RPC endpoint from storage
     const rpcEndpoint = await getCurrentRpcUrl();
-    console.log('[GLIN Wallet] Connecting to RPC:', rpcEndpoint);
+    console.log('[GLIN Wallet] RPC endpoint configured:', rpcEndpoint);
 
-    // Initialize wallet manager
+    // Initialize wallet manager (OFFLINE - no network connection yet)
     await backgroundState.init(rpcEndpoint);
-    console.log('[GLIN Wallet] Wallet manager initialized');
+    console.log('[GLIN Wallet] Wallet manager initialized offline');
+    console.log('[GLIN Wallet] Network connection will be established on-demand when needed');
 
     // Setup message listeners
     chrome.runtime.onMessage.addListener((
@@ -55,6 +56,9 @@ async function init() {
     console.log('[GLIN Wallet] Background service worker ready');
   } catch (error) {
     console.error('[GLIN Wallet] Failed to initialize:', error);
+    // Don't throw - allow extension to continue working with reduced functionality
+    // Wallet creation will still work, just network operations will fail
+    console.error('[GLIN Wallet] Extension will continue with reduced functionality');
   }
 }
 
