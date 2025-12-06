@@ -69,15 +69,13 @@ export const App: React.FC = () => {
 
   const messageBridge = new MessageBridge();
 
-  // Initialize: Check wallet state on mount and parse URL
+  // Initialize: Check for connection request FIRST, then wallet state
   useEffect(() => {
-    checkWalletState();
-    loadSettings();
-    parseUrlParams();
+    initializeApp();
   }, []);
 
-  // Parse URL parameters for connection requests
-  const parseUrlParams = async () => {
+  const initializeApp = async () => {
+    // Check if this is a connection request popup FIRST
     const hash = window.location.hash;
     if (hash.includes('/connection-request')) {
       const params = new URLSearchParams(hash.split('?')[1]);
@@ -87,14 +85,22 @@ export const App: React.FC = () => {
         try {
           const request = await messageBridge.sendToBackground(MessageType.GET_PENDING_REQUEST, { requestId });
           setPendingRequest(request);
-          setCurrentScreen('connection-request');
+          await loadSettings(); // Load settings first
+          await checkWalletState(); // Then check wallet state to get account info
+          setCurrentScreen('connection-request'); // Set screen AFTER loading state
+          return; // Don't continue with normal initialization
         } catch (error) {
           console.error('Failed to load pending request:', error);
           // Request not found or expired - close popup
           window.close();
+          return;
         }
       }
     }
+
+    // Normal initialization (not a connection request)
+    await checkWalletState();
+    await loadSettings();
   };
 
   const loadSettings = async () => {
@@ -255,7 +261,7 @@ export const App: React.FC = () => {
 
     try {
       await messageBridge.sendToBackground(MessageType.APPROVE_CONNECTION, { requestId: pendingRequest.id });
-      window.close(); // Close popup after approval
+      // Window will be closed by background script
     } catch (error) {
       console.error('Failed to approve connection:', error);
       alert('Failed to approve connection');
@@ -268,10 +274,10 @@ export const App: React.FC = () => {
 
     try {
       await messageBridge.sendToBackground(MessageType.REJECT_CONNECTION, { requestId: pendingRequest.id });
-      window.close(); // Close popup after rejection
+      // Window will be closed by background script
     } catch (error) {
       console.error('Failed to reject connection:', error);
-      window.close(); // Close anyway
+      // Window will be closed by background script even on error
     }
   };
 

@@ -49,6 +49,24 @@ export class WalletManager {
     console.log('[WalletManager] init() called - initializing offline (no network connection)');
     await this.keyringService.init();
 
+    // Try to restore session from storage (survives service worker restarts)
+    try {
+      const result = await chrome.storage.session.get('wallet_session');
+      console.log('[WalletManager] Session storage check:', result);
+
+      if (result.wallet_session) {
+        const { walletId, password } = result.wallet_session;
+        console.log('[WalletManager] Found session in storage, walletId:', walletId);
+        console.log('[WalletManager] Attempting to restore session...');
+        await this.unlockWallet(walletId, password);
+        console.log('[WalletManager] ✓ Session restored successfully');
+      } else {
+        console.log('[WalletManager] No session found in storage');
+      }
+    } catch (error) {
+      console.error('[WalletManager] ✗ Session restoration failed:', error);
+    }
+
     // DO NOT connect to network here - make it lazy!
     // Network connection will happen on-demand when needed (balance check, send transaction, etc.)
     console.log('[WalletManager] Initialized offline - wallet remains locked until unlocked with password');
@@ -301,6 +319,20 @@ export class WalletManager {
 
     console.log('[WalletManager] Wallet unlocked successfully');
 
+    // Persist session to survive service worker restarts
+    // Store encrypted seed in session storage (cleared when browser closes)
+    try {
+      await chrome.storage.session.set({
+        'wallet_session': {
+          walletId,
+          password, // Temporary storage for session only
+        }
+      });
+      console.log('[WalletManager] ✓ Session saved to storage');
+    } catch (error) {
+      console.error('[WalletManager] ✗ Failed to save session to storage:', error);
+    }
+
     // Update last used
     await db.wallets.update(walletId, { lastUsed: new Date() });
     await db.setActiveWallet(walletId);
@@ -319,6 +351,11 @@ export class WalletManager {
     // Clear decrypted seed from memory for security
     this.decryptedSeed = null;
     console.log('[WalletManager] Decrypted seed cleared from memory');
+
+    // Clear session storage
+    chrome.storage.session.remove('wallet_session').catch(() => {
+      console.log('[WalletManager] Session storage already cleared');
+    });
   }
 
   /**

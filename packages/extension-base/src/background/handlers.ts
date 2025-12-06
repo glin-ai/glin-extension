@@ -452,17 +452,14 @@ export class MessageHandlers {
     }
 
     if (walletStatus.isLocked) {
-      // Wallet exists but is locked - open extension to unlock
-      chrome.action.openPopup().catch(() => {
-        // Popup API not available, open in new tab instead
-        chrome.tabs.create({ url: chrome.runtime.getURL('popup.html') });
-      });
+      // Wallet exists but is locked - just throw error, don't open popup
+      // The SDK will handle showing the appropriate UI message
       throw new Error('Wallet is locked. Please unlock your wallet first.');
     }
 
     // Check if already connected - if so, return accounts immediately
     if (backgroundState.isConnected(origin)) {
-      const accounts = await this.handleGetAccounts(message);
+      const accounts = await this.handleGetAccounts();
       return { accounts, approved: true };
     }
 
